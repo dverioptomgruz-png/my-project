@@ -1,0 +1,233 @@
+{
+  "name": "Нейро-Ассистент: Мониторинг Автозагрузки",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Каждые 15 минут",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://backend:4000/api/n8n/config",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-Key",
+              "value": "={{ $env.N8N_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-config",
+      "name": "Получить конфигурацию",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.avitoAccounts && $json.avitoAccounts.length > 0 }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-accounts",
+      "name": "Есть подключённые аккаунты?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Мониторинг автозагрузки объявлений\n// В реальности здесь вызов Avito API для проверки статуса автозагрузки\nconst config = $input.first().json;\nconst accounts = config.avitoAccounts || [];\n\nconst reports = [];\n\nfor (const account of accounts) {\n  if (account.status !== 'ACTIVE') continue;\n  \n  // Мок: имитация проверки автозагрузки\n  // В продакшене: GET https://api.avito.ru/autoload/v2/reports\n  const total = Math.floor(Math.random() * 100) + 50;\n  const failed = Math.floor(Math.random() * 5);\n  const ok = total - failed;\n  \n  reports.push({\n    projectId: account.projectId || '',\n    total,\n    ok,\n    failed,\n    accountId: account.id,\n    accountTitle: account.title || 'Аккаунт Авито',\n    rawJson: {\n      checkedAt: new Date().toISOString(),\n      accountId: account.id,\n      items: {\n        total,\n        active: ok,\n        rejected: failed,\n        errors: failed > 0 ? [\n          { itemId: 'mock-item-1', reason: 'Невалидная категория' },\n          { itemId: 'mock-item-2', reason: 'Превышен лимит объявлений' }\n        ].slice(0, failed) : []\n      }\n    }\n  });\n}\n\nreturn reports.map(r => ({ json: r }));"
+      },
+      "id": "check-autoload",
+      "name": "Проверить автозагрузку",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:4000/api/autoload/reports",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-Key",
+              "value": "={{ $env.N8N_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "projectId",
+              "value": "={{ $json.projectId }}"
+            },
+            {
+              "name": "total",
+              "value": "={{ $json.total }}"
+            },
+            {
+              "name": "ok",
+              "value": "={{ $json.ok }}"
+            },
+            {
+              "name": "failed",
+              "value": "={{ $json.failed }}"
+            },
+            {
+              "name": "rawJson",
+              "value": "={{ JSON.stringify($json.rawJson) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "save-report",
+      "name": "Сохранить отчёт",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1100, 240]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.failed }}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "id": "check-errors",
+      "name": "Есть ошибки?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1320, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:4000/api/n8n/alert",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-Key",
+              "value": "={{ $env.N8N_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "projectId",
+              "value": "={{ $json.projectId }}"
+            },
+            {
+              "name": "level",
+              "value": "WARNING"
+            },
+            {
+              "name": "module",
+              "value": "autoload"
+            },
+            {
+              "name": "message",
+              "value": "Автозагрузка: {{ $json.failed }} из {{ $json.total }} объявлений с ошибками ({{ $json.accountTitle }})"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-alert",
+      "name": "Отправить алерт",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1540, 180]
+    },
+    {
+      "parameters": {},
+      "id": "no-errors",
+      "name": "Всё ОК",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1540, 340]
+    },
+    {
+      "parameters": {},
+      "id": "no-accounts",
+      "name": "Нет аккаунтов",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [880, 400]
+    }
+  ],
+  "connections": {
+    "Каждые 15 минут": {
+      "main": [
+        [{ "node": "Получить конфигурацию", "type": "main", "index": 0 }]
+      ]
+    },
+    "Получить конфигурацию": {
+      "main": [
+        [{ "node": "Есть подключённые аккаунты?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Есть подключённые аккаунты?": {
+      "main": [
+        [{ "node": "Проверить автозагрузку", "type": "main", "index": 0 }],
+        [{ "node": "Нет аккаунтов", "type": "main", "index": 0 }]
+      ]
+    },
+    "Проверить автозагрузку": {
+      "main": [
+        [{ "node": "Сохранить отчёт", "type": "main", "index": 0 }]
+      ]
+    },
+    "Сохранить отчёт": {
+      "main": [
+        [{ "node": "Есть ошибки?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Есть ошибки?": {
+      "main": [
+        [{ "node": "Отправить алерт", "type": "main", "index": 0 }],
+        [{ "node": "Всё ОК", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    { "name": "neuro-assistant" },
+    { "name": "autoload" }
+  ]
+}

@@ -1,0 +1,249 @@
+{
+  "name": "Нейро-Ассистент: Мониторинг Отзывов + AI-ответы",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Каждый час",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://backend:4000/api/n8n/config",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-Key",
+              "value": "={{ $env.N8N_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-config",
+      "name": "Получить конфигурацию",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Проверка новых отзывов через Avito API\n// В реальности: GET https://api.avito.ru/ratings/v1/reviews\nconst config = $input.first().json;\nconst accounts = config.avitoAccounts || [];\n\nconst newReviews = [];\n\nfor (const account of accounts) {\n  if (account.status !== 'ACTIVE') continue;\n  \n  // Мок: имитация получения новых отзывов\n  const mockReviews = [\n    {\n      avitoReviewId: 'rev-' + Date.now() + '-1',\n      rating: 5,\n      text: 'Отличный товар! Доставка быстрая, всё как описано.',\n      projectId: account.projectId || '',\n      authorName: 'Покупатель'\n    },\n    {\n      avitoReviewId: 'rev-' + Date.now() + '-2', \n      rating: 3,\n      text: 'Товар нормальный, но упаковка могла быть лучше. Доставка затянулась на 2 дня.',\n      projectId: account.projectId || '',\n      authorName: 'Покупатель'\n    }\n  ];\n  \n  // С вероятностью 50% возвращаем новые отзывы (имитация)\n  if (Math.random() > 0.5) {\n    newReviews.push(...mockReviews.slice(0, Math.ceil(Math.random() * 2)));\n  }\n}\n\nif (newReviews.length === 0) {\n  return [{ json: { hasNewReviews: false, reviews: [] } }];\n}\n\nreturn [{ json: { hasNewReviews: true, reviews: newReviews } }];"
+      },
+      "id": "fetch-reviews",
+      "name": "Проверить новые отзывы",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.hasNewReviews }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-new",
+      "name": "Есть новые отзывы?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Генерация AI-ответов на отзывы\n// В реальности здесь вызов OpenAI/Claude API\nconst data = $input.first().json;\nconst reviews = data.reviews || [];\n\nconst results = [];\n\nfor (const review of reviews) {\n  let aiReply = '';\n  \n  if (review.rating >= 4) {\n    aiReply = `Благодарим за отзыв и высокую оценку! Мы рады, что покупка оправдала ожидания. Будем рады видеть вас снова!`;\n  } else if (review.rating === 3) {\n    aiReply = `Спасибо за обратную связь! Мы учтём ваши замечания и постараемся улучшить сервис. Приносим извинения за неудобства.`;\n  } else {\n    aiReply = `Благодарим за отзыв. Нам жаль, что ваш опыт не оправдал ожиданий. Мы свяжемся с вами для решения вопроса.`;\n  }\n  \n  results.push({\n    json: {\n      ...review,\n      aiReplyText: aiReply,\n      status: 'AI_DRAFT'\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "generate-replies",
+      "name": "Сгенерировать AI-ответы",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:4000/api/reviews",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-Key",
+              "value": "={{ $env.N8N_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "projectId",
+              "value": "={{ $json.projectId }}"
+            },
+            {
+              "name": "avitoReviewId",
+              "value": "={{ $json.avitoReviewId }}"
+            },
+            {
+              "name": "rating",
+              "value": "={{ $json.rating }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.text }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "save-review",
+      "name": "Сохранить отзыв",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1320, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:4000/api/n8n/log",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-Key",
+              "value": "={{ $env.N8N_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "module",
+              "value": "reviews"
+            },
+            {
+              "name": "projectId",
+              "value": "={{ $json.projectId }}"
+            },
+            {
+              "name": "payload",
+              "value": "Новый отзыв (рейтинг: {{ $json.rating }}): {{ $json.text ? $json.text.substring(0, 50) : 'без текста' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "log-execution",
+      "name": "Записать лог",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1540, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:4000/api/n8n/status",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-Key",
+              "value": "={{ $env.N8N_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "module",
+              "value": "reviews"
+            },
+            {
+              "name": "status",
+              "value": "completed"
+            },
+            {
+              "name": "projectId",
+              "value": ""
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "update-status",
+      "name": "Обновить статус",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1540, 400]
+    },
+    {
+      "parameters": {},
+      "id": "no-reviews",
+      "name": "Нет новых отзывов",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1100, 400]
+    }
+  ],
+  "connections": {
+    "Каждый час": {
+      "main": [
+        [{ "node": "Получить конфигурацию", "type": "main", "index": 0 }]
+      ]
+    },
+    "Получить конфигурацию": {
+      "main": [
+        [{ "node": "Проверить новые отзывы", "type": "main", "index": 0 }]
+      ]
+    },
+    "Проверить новые отзывы": {
+      "main": [
+        [{ "node": "Есть новые отзывы?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Есть новые отзывы?": {
+      "main": [
+        [{ "node": "Сгенерировать AI-ответы", "type": "main", "index": 0 }],
+        [{ "node": "Нет новых отзывов", "type": "main", "index": 0 }]
+      ]
+    },
+    "Сгенерировать AI-ответы": {
+      "main": [
+        [{ "node": "Сохранить отзыв", "type": "main", "index": 0 }]
+      ]
+    },
+    "Сохранить отзыв": {
+      "main": [
+        [
+          { "node": "Записать лог", "type": "main", "index": 0 },
+          { "node": "Обновить статус", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    { "name": "neuro-assistant" },
+    { "name": "reviews" }
+  ]
+}

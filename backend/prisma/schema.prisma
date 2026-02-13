@@ -1,0 +1,300 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+}
+
+enum ProjectRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+enum AvitoAccountStatus {
+  ACTIVE
+  EXPIRED
+  DISCONNECTED
+  ERROR
+}
+
+enum BidderStrategy {
+  HOLD_POSITION
+  MIN_BID
+  MAX_COVERAGE
+  SCHEDULE_BASED
+}
+
+enum ChatStatus {
+  OPEN
+  AI_HANDLED
+  MANUAL
+  CLOSED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum ReviewStatus {
+  NEW
+  AI_DRAFT
+  PUBLISHED
+  IGNORED
+}
+
+enum EventLevel {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+// ─── Users ──────────────────────────────────────────
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  role         UserRole @default(MANAGER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  ownedProjects  Project[]
+  memberships    ProjectMember[]
+  assignedChats  ChatThread[]   @relation("AssignedChats")
+
+  @@map("users")
+}
+
+// ─── Projects ───────────────────────────────────────
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner   User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  members ProjectMember[]
+
+  avitoAccounts       AvitoAccount[]
+  items               Item[]
+  bidderRules         BidderRule[]
+  autoloadReports     AutoloadReport[]
+  chatThreads         ChatThread[]
+  competitorSnapshots CompetitorSnapshot[]
+  analyticsDaily      AnalyticsDaily[]
+  reviews             Review[]
+  systemEvents        SystemEventLog[]
+
+  @@map("projects")
+}
+
+model ProjectMember {
+  id            String      @id @default(cuid())
+  projectId     String
+  userId        String
+  roleInProject ProjectRole @default(VIEWER)
+  createdAt     DateTime    @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@map("project_members")
+}
+
+// ─── Avito Integration ──────────────────────────────
+model AvitoAccount {
+  id              String             @id @default(cuid())
+  projectId       String
+  avitoUserId     String?
+  title           String?
+  status          AvitoAccountStatus @default(DISCONNECTED)
+  scopes          String[]
+  tokensEncrypted String? // AES-256-GCM encrypted JSON { accessToken, refreshToken, expiresAt }
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("avito_accounts")
+}
+
+// ─── Items (Avito Listings) ─────────────────────────
+model Item {
+  id          String   @id @default(cuid())
+  avitoItemId String
+  projectId   String
+  title       String
+  status      String?
+  price       Float?
+  url         String?
+  category    String?
+  imageUrl    String?
+  updatedAt   DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([avitoItemId, projectId])
+  @@map("items")
+}
+
+// ─── Bidder ─────────────────────────────────────────
+model BidderRule {
+  id          String          @id @default(cuid())
+  projectId   String
+  name        String
+  enabled     Boolean         @default(true)
+  strategy    BidderStrategy  @default(HOLD_POSITION)
+  minBid      Float           @default(0)
+  maxBid      Float           @default(1000)
+  dailyBudget Float?
+  schedule    Json?           // e.g. { "days": [1,2,3,4,5], "startHour": 8, "endHour": 22 }
+  itemFilter  Json?           // e.g. { "categories": [...], "priceMin": 0, "priceMax": 100000 }
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  project       Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  executionLogs BidderExecutionLog[]
+
+  @@map("bidder_rules")
+}
+
+model BidderExecutionLog {
+  id       String   @id @default(cuid())
+  ruleId   String
+  ts       DateTime @default(now())
+  decision String   // e.g. "RAISE", "LOWER", "HOLD", "SKIP"
+  oldBid   Float?
+  newBid   Float?
+  position Int?
+  spent    Float?
+  rawJson  Json?
+
+  rule BidderRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@map("bidder_execution_logs")
+}
+
+// ─── Autoload ───────────────────────────────────────
+model AutoloadReport {
+  id        String   @id @default(cuid())
+  projectId String
+  ts        DateTime @default(now())
+  total     Int      @default(0)
+  ok        Int      @default(0)
+  failed    Int      @default(0)
+  rawJson   Json?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("autoload_reports")
+}
+
+// ─── Chat / AI Autoresponder ────────────────────────
+model ChatThread {
+  id            String     @id @default(cuid())
+  projectId     String
+  avitoChatId   String
+  lastMessageAt DateTime?
+  status        ChatStatus @default(OPEN)
+  assignedToId  String?
+
+  project    Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignedTo User?         @relation("AssignedChats", fields: [assignedToId], references: [id])
+  messages   ChatMessage[]
+
+  @@unique([avitoChatId, projectId])
+  @@map("chat_threads")
+}
+
+model ChatMessage {
+  id          String           @id @default(cuid())
+  threadId    String
+  direction   MessageDirection
+  text        String
+  ts          DateTime         @default(now())
+  aiGenerated Boolean          @default(false)
+  rawJson     Json?
+
+  thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@map("chat_messages")
+}
+
+// ─── Competitors ────────────────────────────────────
+model CompetitorSnapshot {
+  id          String   @id @default(cuid())
+  projectId   String
+  query       String
+  ts          DateTime @default(now())
+  resultsJson Json?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("competitor_snapshots")
+}
+
+// ─── Analytics ──────────────────────────────────────
+model AnalyticsDaily {
+  id        String   @id @default(cuid())
+  projectId String
+  date      DateTime @db.Date
+  views     Int      @default(0)
+  favorites Int      @default(0)
+  contacts  Int      @default(0)
+  chats     Int      @default(0)
+  calls     Int      @default(0)
+  spend     Float    @default(0)
+  cpl       Float?
+  roi       Float?
+  romi      Float?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, date])
+  @@map("analytics_daily")
+}
+
+// ─── Reviews ────────────────────────────────────────
+model Review {
+  id             String       @id @default(cuid())
+  projectId      String
+  avitoReviewId  String
+  rating         Int
+  text           String?
+  ts             DateTime     @default(now())
+  status         ReviewStatus @default(NEW)
+  aiReplyText    String?
+  published      Boolean      @default(false)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([avitoReviewId, projectId])
+  @@map("reviews")
+}
+
+// ─── System Event Log ───────────────────────────────
+model SystemEventLog {
+  id        String     @id @default(cuid())
+  projectId String?
+  level     EventLevel @default(INFO)
+  module    String
+  message   String
+  ts        DateTime   @default(now())
+  metaJson  Json?
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@map("system_event_logs")
+}

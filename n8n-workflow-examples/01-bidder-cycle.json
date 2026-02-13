@@ -1,0 +1,146 @@
+{
+  "name": "Нейро-Ассистент: Цикл Биддера",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Каждые 5 минут",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://backend:4000/api/n8n/config",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-Key",
+              "value": "={{ $env.N8N_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-config",
+      "name": "Получить конфигурацию",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.bidderRules && $json.bidderRules.length > 0 }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-rules",
+      "name": "Есть активные правила?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Обработка каждого правила биддера\nconst config = $input.first().json;\nconst rules = config.bidderRules || [];\nconst accounts = config.avitoAccounts || [];\n\nconst results = [];\n\nfor (const rule of rules) {\n  if (!rule.enabled) continue;\n  \n  // Проверка расписания\n  const now = new Date();\n  const hour = now.getHours();\n  const day = now.getDay();\n  \n  if (rule.schedule) {\n    const { days, startHour, endHour } = rule.schedule;\n    if (days && !days.includes(day)) continue;\n    if (startHour && hour < startHour) continue;\n    if (endHour && hour > endHour) continue;\n  }\n  \n  // Логика ставки в зависимости от стратегии\n  let decision = 'HOLD';\n  let newBid = rule.minBid;\n  const oldBid = rule.minBid; // В реальности берём текущую ставку из Avito API\n  const position = Math.floor(Math.random() * 10) + 1; // Мок позиции\n  \n  switch (rule.strategy) {\n    case 'HOLD_POSITION':\n      // Если позиция > 3, повышаем ставку\n      if (position > 3) {\n        decision = 'RAISE';\n        newBid = Math.min(oldBid * 1.1, rule.maxBid);\n      } else if (position <= 2) {\n        decision = 'LOWER';\n        newBid = Math.max(oldBid * 0.95, rule.minBid);\n      }\n      break;\n    case 'MIN_BID':\n      decision = 'LOWER';\n      newBid = rule.minBid;\n      break;\n    case 'MAX_COVERAGE':\n      decision = 'RAISE';\n      newBid = rule.maxBid;\n      break;\n    default:\n      decision = 'HOLD';\n  }\n  \n  results.push({\n    ruleId: rule.id,\n    ruleName: rule.name,\n    decision,\n    oldBid: oldBid,\n    newBid: Math.round(newBid * 100) / 100,\n    position,\n    spent: Math.round(newBid * Math.random() * 100) / 100,\n    strategy: rule.strategy\n  });\n}\n\nreturn results.map(r => ({ json: r }));"
+      },
+      "id": "process-rules",
+      "name": "Обработка правил",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:4000/api/n8n/log",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-Key",
+              "value": "={{ $env.N8N_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "module",
+              "value": "bidder"
+            },
+            {
+              "name": "projectId",
+              "value": "={{ $json.projectId || '' }}"
+            },
+            {
+              "name": "payload",
+              "value": "={{ JSON.stringify($json) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "log-execution",
+      "name": "Записать лог",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1100, 240]
+    },
+    {
+      "parameters": {},
+      "id": "no-rules",
+      "name": "Нет правил — пропуск",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [880, 400]
+    }
+  ],
+  "connections": {
+    "Каждые 5 минут": {
+      "main": [
+        [{ "node": "Получить конфигурацию", "type": "main", "index": 0 }]
+      ]
+    },
+    "Получить конфигурацию": {
+      "main": [
+        [{ "node": "Есть активные правила?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Есть активные правила?": {
+      "main": [
+        [{ "node": "Обработка правил", "type": "main", "index": 0 }],
+        [{ "node": "Нет правил — пропуск", "type": "main", "index": 0 }]
+      ]
+    },
+    "Обработка правил": {
+      "main": [
+        [{ "node": "Записать лог", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    { "name": "neuro-assistant" },
+    { "name": "bidder" }
+  ]
+}
