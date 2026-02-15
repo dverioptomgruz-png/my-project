@@ -178,3 +178,34 @@ n8n обращается к backend через эндпоинты:
 - Helmet для HTTP заголовков
 - Токены Авито: AES-256-GCM шифрование
 - Секреты только в .env, не в коде
+
+
+## Новые модули (Demo)
+
+Демо-версия трёх новых модулей доступна в корне проекта:
+
+1. **CRM-коннектор (адаптивный)** — `src/modules/crmIntegration.js`
+   - Кастомизация объектов, маппинг полей, webhook-событий, sync mode и лимитов
+2. **Всегда в сети (toggle)** — `src/modules/onlinePresence.js`
+   - Лёгкое включение/выключение режима с heartbeat и шаблоном автоответа
+3. **A/B тестирование через AI-чат** — `src/modules/abTesting.js`
+   - Пользователь описывает нишу, AI задаёт уточняющие вопросы
+   - AI генерирует 3-5 вариантов заголовков и текстов + рекомендации по главным изображениям
+
+### Запуск демо
+
+```bash
+python3 -m http.server 4173
+```
+
+Откройте `http://localhost:4173`.
+
+### Файлы демо-модулей
+
+- `index.html` — интерфейс модулей и AI-чата
+- `src/app.js` — логика взаимодействия UI и модулей
+- `src/modules/crmIntegration.js` — адаптивный CRM-коннектор
+- `src/modules/onlinePresence.js` — режим always-online
+- `src/modules/abTesting.js` — AI-assistant для A/B тестов
+- `src/styles.css` — стили интерфейса
+- `docs/avito-analysis.md` — аналитика и логика проектирования
