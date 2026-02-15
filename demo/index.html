@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Avito Neuro Assistant</title>
+  <link rel="stylesheet" href="./src/styles.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>Neuro Assistant для Avito</h1>
+    <p class="lead">Интеграция CRM, режим всегда онлайн и AI-чат для A/B тестирования по нише.</p>
+
+    <div class="grid">
+      <div class="card">
+        <h2>CRM-коннектор</h2>
+        <p>Подключение вашей CRM с адаптацией маппинга, объектов и событий.</p>
+        <label for="crm-provider">CRM провайдер</label>
+        <input id="crm-provider" type="text" placeholder="Например: Bitrix24 / amoCRM / HubSpot" />
+        <button id="crm-connect">Подключить и синхронизировать</button>
+        <pre id="crm-state"></pre>
+      </div>
+
+      <div class="card">
+        <h2>Всегда в сети</h2>
+        <p>Лёгкий переключатель активности + heartbeat логика.</p>
+        <label class="toggle" for="always-online-toggle">
+          <input id="always-online-toggle" type="checkbox" />
+          Включить режим
+        </label>
+        <pre id="online-state"></pre>
+      </div>
+    </div>
+
+    <div class="card card--chat">
+      <h2>A/B тестирование через AI-чат</h2>
+      <p>
+        Опишите нишу — ассистент проведёт сквозной анализ, задаст уточняющие вопросы и сгенерирует
+        3-5 вариантов заголовков/текстов + рекомендации по главным изображениям.
+      </p>
+
+      <div class="chat-controls">
+        <input id="ab-prompt" type="text" placeholder="Например: ремонт квартир в новостройках, сегмент комфорт+" />
+        <button id="ab-start">Открыть AI-чат</button>
+      </div>
+
+      <div id="ab-chat-log" class="chat-log"></div>
+
+      <div id="ab-questions" class="questions"></div>
+
+      <button id="ab-generate">Сгенерировать стратегию теста</button>
+      <pre id="ab-result"></pre>
+    </div>
+  </div>
+
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>
