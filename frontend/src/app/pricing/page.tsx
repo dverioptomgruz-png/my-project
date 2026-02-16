@@ -135,7 +135,7 @@ export default function PricingPage() {
 
         <div className="text-center mt-12">
           <p className="text-muted-foreground">
-            Все тарифы включают 7 дней бесплатного пробного периода
+            Все тарифы включают 3 дня бесплатного пробного периода
           </p>
         </div>
       </div>

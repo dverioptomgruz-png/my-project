@@ -43,9 +43,9 @@ const plans = [
       { name: 'Все из Профи', included: true },
       { name: 'Безлимит аккаунтов', included: true },
       { name: 'Приоритетная поддержка', included: true },
-      { name: 'API доступ', included: true },
-      { name: 'Белый лейбл', included: true },
-      { name: 'Выделенный сервер', included: true },
+      { name: 'Экспорт отчётов', included: true },
+      { name: 'Расширенная статистика', included: true },
+      { name: 'Мультиаккаунт панель', included: true },
     ],
     popular: false,
   },
@@ -123,7 +123,7 @@ export function PricingSection() {
 
         <div className="text-center mt-8">
           <p className="text-muted-foreground mb-4">
-            Все тарифы включают 7 дней бесплатного пробного периода
+            Все тарифы включают 3 дня бесплатного пробного периода
           </p>
           <Button variant="link" asChild>
             <Link href="/pricing">Сравнить все возможности →</Link>
