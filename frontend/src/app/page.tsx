@@ -12,6 +12,8 @@ import {
   Star,
   TrendingUp,
   Zap,
+    Link2,
+  FlaskConical,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -46,6 +48,16 @@ const features = [
     icon: Star,
     title: 'Отзывы + AI',
     desc: 'AI генерирует ответы на отзывы, вы утверждаете и публикуете в один клик',
+  },
+    {
+    icon: Link2,
+    title: 'CRM Интеграция',
+    desc: 'Авто-создание сделок и синхронизация с amoCRM, Bitrix24',
+  },
+    {
+    icon: FlaskConical,
+    title: 'A/B Тестирование',
+    desc: 'Тестируйте заголовки, фото и цены для максимальной конверсии',
   },
 ];
 

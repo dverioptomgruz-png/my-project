@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import React, {
   createContext,
@@ -7,14 +7,9 @@ import React, {
   useEffect,
   useMemo,
   useState,
-} from "react";
-import { api } from "./api";
-import type {
-  AuthResponse,
-  LoginRequest,
-  RegisterRequest,
-  User,
-} from "@/types";
+} from 'react';
+import { createClient } from './supabase/client';
+import type { User } from '@supabase/supabase-js';
 
 interface AuthState {
   user: User | null;
@@ -22,145 +17,70 @@ interface AuthState {
   isAuthenticated: boolean;
 }
 
-interface AuthContextValue extends AuthState {
-  login: (credentials: LoginRequest) => Promise<void>;
-  register: (data: RegisterRequest) => Promise<void>;
+interface AuthContextType extends AuthState {
+  login: (email: string, password: string) => Promise<{ error?: string }>;
+  register: (email: string, password: string, name?: string) => Promise<{ error?: string }>;
   logout: () => Promise<void>;
-  refreshProfile: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<AuthState>({
-    user: null,
-    isLoading: true,
-    isAuthenticated: false,
-  });
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  const supabase = useMemo(() => createClient(), []);
 
-  const setTokens = useCallback(
-    (accessToken: string, refreshToken: string) => {
-      localStorage.setItem("accessToken", accessToken);
-      localStorage.setItem("refreshToken", refreshToken);
-    },
-    []
-  );
-
-  const clearTokens = useCallback(() => {
-    localStorage.removeItem("accessToken");
-    localStorage.removeItem("refreshToken");
-  }, []);
-
-  const refreshProfile = useCallback(async () => {
-    try {
-      const { data } = await api.get<User>("/auth/profile");
-      setState({
-        user: data,
-        isLoading: false,
-        isAuthenticated: true,
-      });
-    } catch {
-      setState({
-        user: null,
-        isLoading: false,
-        isAuthenticated: false,
-      });
-    }
-  }, []);
-
-  const login = useCallback(
-    async (credentials: LoginRequest) => {
-      setState((prev) => ({ ...prev, isLoading: true }));
-      try {
-        const { data } = await api.post<AuthResponse>(
-          "/auth/login",
-          credentials
-        );
-        setTokens(data.accessToken, data.refreshToken);
-        setState({
-          user: data.user,
-          isLoading: false,
-          isAuthenticated: true,
-        });
-      } catch (error) {
-        setState((prev) => ({ ...prev, isLoading: false }));
-        throw error;
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        setUser(session?.user ?? null);
+        setIsLoading(false);
       }
-    },
-    [setTokens]
-  );
+    );
 
-  const register = useCallback(
-    async (data: RegisterRequest) => {
-      setState((prev) => ({ ...prev, isLoading: true }));
-      try {
-        const { data: authData } = await api.post<AuthResponse>(
-          "/auth/register",
-          data
-        );
-        setTokens(authData.accessToken, authData.refreshToken);
-        setState({
-          user: authData.user,
-          isLoading: false,
-          isAuthenticated: true,
-        });
-      } catch (error) {
-        setState((prev) => ({ ...prev, isLoading: false }));
-        throw error;
-      }
-    },
-    [setTokens]
-  );
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setIsLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, [supabase]);
+
+  const login = useCallback(async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { error: error.message };
+    return {};
+  }, [supabase]);
+
+  const register = useCallback(async (email: string, password: string, name?: string) => {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { full_name: name } }
+    });
+    if (error) return { error: error.message };
+    return {};
+  }, [supabase]);
 
   const logout = useCallback(async () => {
-    try {
-      await api.post("/auth/logout");
-    } catch {
-      // Ignore logout errors - we clear locally regardless
-    } finally {
-      clearTokens();
-      setState({
-        user: null,
-        isLoading: false,
-        isAuthenticated: false,
-      });
-    }
-  }, [clearTokens]);
+    await supabase.auth.signOut();
+  }, [supabase]);
 
-  // On mount, try to fetch the user profile if a token exists
-  useEffect(() => {
-    const token = localStorage.getItem("accessToken");
-    if (token) {
-      refreshProfile();
-    } else {
-      setState({
-        user: null,
-        isLoading: false,
-        isAuthenticated: false,
-      });
-    }
-  }, [refreshProfile]);
-
-  const value = useMemo<AuthContextValue>(
-    () => ({
-      ...state,
-      login,
-      register,
-      logout,
-      refreshProfile,
-    }),
-    [state, login, register, logout, refreshProfile]
-  );
+  const value = useMemo(() => ({
+    user,
+    isLoading,
+    isAuthenticated: !!user,
+    login,
+    register,
+    logout,
+  }), [user, isLoading, login, register, logout]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-export function useAuth(): AuthContextValue {
+export function useAuth() {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider");
-  }
+  if (!context) throw new Error('useAuth must be used within AuthProvider');
   return context;
 }
-
-export { AuthContext };
