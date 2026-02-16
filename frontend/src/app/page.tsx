@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { PricingSection } from '@/components/pricing-section';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import {
   BarChart3,
@@ -180,6 +181,8 @@ export default function LandingPage() {
       </section>
 
       {/* Footer */}
+      <PricingSection />
+
       <footer className="border-t py-8">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 flex items-center justify-between text-sm text-muted-foreground">
           <span>Нейро-Ассистент &copy; {new Date().getFullYear()}</span>
