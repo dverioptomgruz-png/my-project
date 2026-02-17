@@ -26,9 +26,9 @@ interface AvitoAccountDB {
   user_id: string;
   account_name: string;
   client_id: string | null;
-  client_secret_encrypted: string | null;
-  access_token_encrypted: string | null;
-  refresh_token_encrypted: string | null;
+  client_secret: string | null;
+  access_token: string | null;
+  refresh_token: string | null;
   token_expires_at: string | null;
   is_active: boolean;
   created_at: string;

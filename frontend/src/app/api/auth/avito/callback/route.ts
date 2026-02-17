@@ -95,6 +95,7 @@ export async function GET(request: NextRequest) {
       userId,
       accountName: avitoUserName,
       clientId: clientId,
+      clientSecret: clientSecret,
       accessToken: tokenData.access_token,
       refreshToken: tokenData.refresh_token,
       expiresAt,

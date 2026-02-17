@@ -11,6 +11,7 @@ import { AutoloadModule } from './modules/autoload/autoload.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { CompetitorsModule } from './modules/competitors/competitors.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { ABTesterModule } from './modules/ab-tester/ab-tester.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { FunnelModule } from './modules/funnel/funnel.module';
 import { N8nModule } from './modules/n8n/n8n.module';
@@ -30,6 +31,7 @@ import { SystemModule } from './modules/system/system.module';
     UsersModule,
     ProjectsModule,
     AvitoModule,
+    ABTesterModule,
     BidderModule,
     AutoloadModule,
     ChatModule,

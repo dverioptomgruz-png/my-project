@@ -38,8 +38,8 @@ interface DashboardStats {
 }
 
 export default function DashboardPage() {
-  const { user } = useAuth();
-  const [stats, setStats] = useState<DashboardStats>({
+    const { user, profile } = useAuth();
+const [stats, setStats] = useState<DashboardStats>({
     projectsCount: 0,
     activeAvitoAccounts: 0,
     activeBidderRules: 0,
@@ -168,7 +168,7 @@ export default function DashboardPage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">
-          Добро пожаловать{user?.fullName ? `, ${user.fullName}` : ''}
+          Добро пожаловать{profile?.full_name ? `, ${profile.full_name}` : ''}
         </h1>
         <p className="mt-1 text-[hsl(var(--muted-foreground))]">
           Обзор вашего рабочего пространства Нейро-Ассистент

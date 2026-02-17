@@ -1,27 +1,19 @@
-FROM node:20-alpine AS base
+# Stage 1: Build
+FROM node:18-alpine AS builder
 WORKDIR /app
-
-# Install dependencies
-COPY package.json package-lock.json* ./
-RUN npm install
-
-# Copy source code
+COPY package*.json ./
+RUN npm ci
 COPY . .
-
-# Build
 RUN npm run build
 
-# Production stage
-FROM node:20-alpine AS production
+# Stage 2: Production
+FROM node:18-alpine
 WORKDIR /app
-
-COPY --from=base /app/.next/standalone ./
-COPY --from=base /app/.next/static ./.next/static
-COPY --from=base /app/public ./public
-
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/next.config.js ./
 EXPOSE 3000
-
 ENV NODE_ENV=production
-ENV HOSTNAME=0.0.0.0
-
-CMD ["node", "server.js"]
+CMD ["npm", "start"]

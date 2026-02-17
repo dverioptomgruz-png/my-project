@@ -1,87 +1,79 @@
 'use client';
 
-import { useState } from 'react';
+import { Auth } from '@supabase/auth-ui-react';
+import { ThemeSupa } from '@supabase/auth-ui-shared';
+import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { useAuth } from '@/lib/auth-context';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { LogIn } from 'lucide-react';
+import { useEffect } from 'react';
 
-export default function LoginPage() {
+export default function AuthPage() {
+  const supabase = createClient();
   const router = useRouter();
-  const { login } = useAuth();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-    try {
-      await login(email, password);
-      router.push('/app');
-    } catch (err: any) {
-      setError(err?.message || 'Ошибка входа');
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session) {
+        router.push('/app');
+        router.refresh();
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [supabase, router]);
 
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader className="text-center">
-        <CardTitle className="text-2xl">Вход в систему</CardTitle>
-        <CardDescription>Введите email и пароль для входа</CardDescription>
-      </CardHeader>
-      <form onSubmit={handleSubmit}>
-        <CardContent className="space-y-4">
-          {error && (
-            <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-              {error}
-            </div>
-          )}
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              placeholder="user@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="password">Пароль</Label>
-            <Input
-              id="password"
-              type="password"
-              placeholder="Введите пароль"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={6}
-            />
-          </div>
-        </CardContent>
-        <CardFooter className="flex flex-col gap-3">
-          <Button type="submit" className="w-full" disabled={loading}>
-            <LogIn className="mr-2 h-4 w-4" />
-            {loading ? 'Вход...' : 'Войти'}
-          </Button>
-          <p className="text-sm text-muted-foreground">
-            Нет аккаунта?{' '}
-            <Link href="/auth/register" className="text-brand-500 hover:underline">
-              Зарегистрироваться
-            </Link>
-          </p>
-        </CardFooter>
-      </form>
-    </Card>
+    <div className="flex min-h-screen items-center justify-center px-4 bg-background">
+      <div className="w-full max-w-md">
+        <div className="mb-8 text-center">
+          <h1 className="text-3xl font-bold mb-2">Нейро-Ассистент</h1>
+          <p className="text-muted-foreground">Автоматизация Авито</p>
+        </div>
+        
+        <div className="rounded-xl border bg-card p-8 shadow-lg">
+          <Auth
+            supabaseClient={supabase}
+            appearance={{
+              theme: ThemeSupa,
+              variables: {
+                default: {
+                  colors: {
+                    brand: 'hsl(var(--primary))',
+                    brandAccent: 'hsl(var(--primary))',
+                  },
+                },
+              },
+              className: {
+                container: 'auth-container',
+                button: 'auth-button',
+                input: 'auth-input',
+              },
+            }}
+            localization={{
+              variables: {
+                sign_in: {
+                  email_label: 'Эл. почта',
+                  password_label: 'Пароль',
+                  button_label: 'Войти',
+                  loading_button_label: 'Вход...',
+                  link_text: 'Уже есть аккаунт? Войти',
+                },
+                sign_up: {
+                  email_label: 'Эл. почта',
+                  password_label: 'Пароль',
+                  button_label: 'Создать аккаунт',
+                  loading_button_label: 'Создание...',
+                  link_text: 'Нет аккаунта? Зарегистрироваться',
+                },
+                            forgotten_password: {
+              link_text: 'Забыли пароль?',
+            },
+              },
+            }}
+            providers={[]}
+            redirectTo={`${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3001'}/app`}
+          />
+        </div>
+      </div>
+    </div>
   );
 }

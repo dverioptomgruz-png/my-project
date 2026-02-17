@@ -68,11 +68,11 @@ export default function AdminPage() {
         api.get<any>('/system/events?take=50'),
       ]);
 
-      if (h.status === 'fulfilled') setHealth(h.value);
+      if (h.status === 'fulfilled') setHealth(h.value.data ?? null);
       if (svc.status === 'fulfilled') setServices(Array.isArray(svc.value) ? svc.value : (svc.value as any)?.services || []);
       if (ev.status === 'fulfilled') setEvents(Array.isArray(ev.value) ? ev.value : (ev.value as any)?.data || []);
     } catch {
-      toast.error('Ошибка загрузки данных');
+      toast.error({ title: 'Ошибка загрузки данных' });
     } finally {
       setLoading(false);
     }
@@ -82,7 +82,7 @@ export default function AdminPage() {
     setRefreshing(true);
     await fetchAll();
     setRefreshing(false);
-    toast.success('Данные обновлены');
+    toast.success({ title: 'Данные обновлены' });
   };
 
   useEffect(() => {

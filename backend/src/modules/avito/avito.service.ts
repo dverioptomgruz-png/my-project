@@ -1,309 +1,290 @@
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  BadRequestException,
-  InternalServerErrorException,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
-import { encrypt, decrypt } from '../../common/utils/crypto';
-import { AvitoAccountStatus } from '@prisma/client';
+import axios from 'axios';
 
-interface AvitoTokens {
-  access_token: string;
-  refresh_token: string;
-  expires_in: number; // seconds
-  token_type: string;
-}
-
-interface EncryptedTokenPayload {
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: string; // ISO date string
-}
+const AVITO_API = 'https://api.avito.ru';
+const AVITO_TOKEN_URL = 'https://api.avito.ru/token';
 
 @Injectable()
 export class AvitoService {
   private readonly logger = new Logger(AvitoService.name);
 
   constructor(
-    private readonly config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
   ) {}
 
-  /**
-   * Build the Avito OAuth authorization URL.
-   * The `state` parameter carries the projectId so it can be recovered in the callback.
-   */
-  getAuthUrl(projectId: string): string {
-    const clientId = this.config.get<string>('AVITO_CLIENT_ID');
-    const redirectUri = this.config.get<string>('AVITO_REDIRECT_URI');
-    const authUrl = this.config.get<string>(
-      'AVITO_AUTH_URL',
-      'https://www.avito.ru/oauth',
-    );
+  // === Token Management ===
 
-    if (!clientId || !redirectUri) {
-      throw new InternalServerErrorException(
-        'Avito OAuth is not configured (missing AVITO_CLIENT_ID or AVITO_REDIRECT_URI)',
-      );
+  private async getValidToken(accountId: string): Promise<string> {
+    const account = await this.prisma.avitoAccount.findUnique({ where: { id: accountId } });
+    if (!account) throw new NotFoundException(`AvitoAccount ${accountId} not found`);
+    if (!account.access_token) throw new BadRequestException('No access token for this account');
+
+    // Check if token expired
+    if (account.token_expires_at && new Date(account.token_expires_at) < new Date()) {
+      return this.refreshToken(accountId);
+    }
+    return account.access_token;
+  }
+
+  async refreshToken(accountId: string): Promise<string> {
+    const account = await this.prisma.avitoAccount.findUnique({ where: { id: accountId } });
+    if (!account || !account.refresh_token) {
+      throw new BadRequestException('Cannot refresh token: no refresh token available');
     }
 
-    const params = new URLSearchParams({
-      response_type: 'code',
+    try {
+      const response = await axios.post(AVITO_TOKEN_URL, {
+        grant_type: 'refresh_token',
+        refresh_token: account.refresh_token,
+        client_id: account.client_id || this.configService.get('AVITO_CLIENT_ID'),
+        client_secret: account.client_secret || this.configService.get('AVITO_CLIENT_SECRET'),
+      });
+
+      const { access_token, refresh_token, expires_in } = response.data;
+      await this.prisma.avitoAccount.update({
+        where: { id: accountId },
+        data: {
+          access_token,
+          refresh_token: refresh_token || account.refresh_token,
+          token_expires_at: new Date(Date.now() + expires_in * 1000),
+          updated_at: new Date(),
+        },
+      });
+      return access_token;
+    } catch (error) {
+      this.logger.error(`Token refresh failed for ${accountId}`, error);
+      throw new BadRequestException('Token refresh failed');
+    }
+  }
+
+  // === OAuth ===
+
+  async handleCallback(code: string, state: string) {
+    const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
+    const { projectId } = stateData;
+
+    const clientId = this.configService.get('AVITO_CLIENT_ID');
+    const clientSecret = this.configService.get('AVITO_CLIENT_SECRET');
+
+    const tokenResponse = await axios.post(AVITO_TOKEN_URL, {
+      grant_type: 'authorization_code',
+      code,
       client_id: clientId,
-      redirect_uri: redirectUri,
-      state: projectId,
+      client_secret: clientSecret,
     });
 
-    return `${authUrl}?${params.toString()}`;
-  }
+    const { access_token, refresh_token, expires_in } = tokenResponse.data;
 
-  /**
-   * Exchange the authorization code for access & refresh tokens, then
-   * encrypt and persist them against the project's AvitoAccount.
-   */
-  async handleCallback(code: string, state: string): Promise<string> {
-    const projectId = state;
-
-    // Verify the project exists
-    const project = await this.prisma.project.findUnique({
-      where: { id: projectId },
-    });
-    if (!project) {
-      throw new NotFoundException(`Project "${projectId}" not found`);
-    }
-
-    const tokens = await this.exchangeCodeForTokens(code);
-
-    const encryptedPayload = this.encryptTokens(tokens);
-
-    // Upsert: create or update the AvitoAccount for this project
-    await this.prisma.avitoAccount.upsert({
-      where: {
-        id: await this.findOrGenerateAccountId(projectId),
-      },
-      create: {
-        projectId,
-        status: AvitoAccountStatus.ACTIVE,
-        tokensEncrypted: encryptedPayload,
-        scopes: [],
-      },
-      update: {
-        status: AvitoAccountStatus.ACTIVE,
-        tokensEncrypted: encryptedPayload,
-      },
-    });
-
-    this.logger.log(`Avito account connected for project ${projectId}`);
-
-    return projectId;
-  }
-
-  /**
-   * Refresh tokens for a given AvitoAccount.
-   * Loads encrypted tokens from DB, decrypts, calls the Avito refresh endpoint,
-   * re-encrypts and saves the new tokens.
-   */
-  async refreshToken(accountId: string): Promise<{ success: boolean }> {
-    const account = await this.prisma.avitoAccount.findUnique({
-      where: { id: accountId },
-    });
-
-    if (!account) {
-      throw new NotFoundException(`AvitoAccount "${accountId}" not found`);
-    }
-
-    if (!account.tokensEncrypted) {
-      throw new BadRequestException(
-        'No tokens stored for this Avito account. Please reconnect via OAuth.',
-      );
-    }
-
-    const storedTokens = this.decryptTokens(account.tokensEncrypted);
-
-    const newTokens = await this.refreshAccessToken(storedTokens.refreshToken);
-
-    const encryptedPayload = this.encryptTokens(newTokens);
-
-    await this.prisma.avitoAccount.update({
-      where: { id: accountId },
+    const account = await this.prisma.avitoAccount.create({
       data: {
-        tokensEncrypted: encryptedPayload,
-        status: AvitoAccountStatus.ACTIVE,
+        user_id: projectId,
+        account_name: `Avito ${new Date().toISOString().split('T')[0]}`,
+        client_id: clientId,
+        client_secret: clientSecret,
+        access_token,
+        refresh_token,
+        token_expires_at: new Date(Date.now() + expires_in * 1000),
+        is_active: true,
       },
     });
 
-    this.logger.log(`Tokens refreshed for AvitoAccount ${accountId}`);
-
-    return { success: true };
+    return { accountId: account.id, success: true };
   }
 
-  /**
-   * Return a safe status summary of Avito accounts for a project.
-   * Never exposes actual tokens.
-   */
+  // === Status ===
+
   async getStatus(projectId: string) {
     const accounts = await this.prisma.avitoAccount.findMany({
-      where: { projectId },
-      select: {
-        id: true,
-        avitoUserId: true,
-        title: true,
-        status: true,
-        scopes: true,
-        tokensEncrypted: true,
-        createdAt: true,
-        updatedAt: true,
+      where: { user_id: projectId, is_active: true },
+      select: { id: true, account_name: true, is_active: true, token_expires_at: true, created_at: true },
+    });
+    return {
+      connected: accounts.length > 0,
+      accounts: accounts.map(a => ({
+        id: a.id,
+        name: a.account_name,
+        active: a.is_active,
+        tokenValid: a.token_expires_at ? new Date(a.token_expires_at) > new Date() : false,
+      })),
+    };
+  }
+
+  // === Accounts ===
+
+  async connectAccount(projectId: string, clientId?: string, clientSecret?: string) {
+    const account = await this.prisma.avitoAccount.create({
+      data: {
+        user_id: projectId,
+        account_name: `Avito Account ${new Date().toISOString().split('T')[0]}`,
+        client_id: clientId,
+        client_secret: clientSecret,
+        is_active: true,
       },
     });
+    return { id: account.id, name: account.account_name, created: true };
+  }
 
-    return accounts.map((account) => {
-      let tokenExpiresAt: string | null = null;
-
-      if (account.tokensEncrypted) {
-        try {
-          const payload = this.decryptTokens(account.tokensEncrypted);
-          tokenExpiresAt = payload.expiresAt;
-        } catch {
-          // If decryption fails the account is in a broken state
-          tokenExpiresAt = null;
-        }
-      }
-
-      return {
-        id: account.id,
-        avitoUserId: account.avitoUserId,
-        title: account.title,
-        status: account.status,
-        scopes: account.scopes,
-        tokenExpiresAt,
-        connected: account.status === AvitoAccountStatus.ACTIVE,
-        createdAt: account.createdAt,
-        updatedAt: account.updatedAt,
-      };
+  async getAccounts(projectId?: string) {
+    const where = projectId ? { user_id: projectId } : {};
+    return this.prisma.avitoAccount.findMany({
+      where,
+      select: { id: true, account_name: true, is_active: true, created_at: true, token_expires_at: true },
+      orderBy: { created_at: 'desc' },
     });
   }
 
-  // ── Private helpers ──────────────────────────────────
-
-  /**
-   * Exchange an authorization code for tokens via POST to the Avito token endpoint.
-   */
-  private async exchangeCodeForTokens(code: string): Promise<AvitoTokens> {
-    const clientId = this.config.get<string>('AVITO_CLIENT_ID', '');
-    const clientSecret = this.config.get<string>('AVITO_CLIENT_SECRET', '');
-    const apiBaseUrl = this.config.get<string>(
-      'AVITO_API_BASE_URL',
-      'https://api.avito.ru',
-    );
-
-    const response = await fetch(`${apiBaseUrl}/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        client_id: clientId,
-        client_secret: clientSecret,
-        code,
-      }).toString(),
-    });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      this.logger.error(
-        `Avito token exchange failed (${response.status}): ${errorBody}`,
-      );
-      throw new BadRequestException(
-        'Failed to exchange authorization code for tokens with Avito',
-      );
-    }
-
-    return response.json() as Promise<AvitoTokens>;
+  async getAccountById(accountId: string) {
+    const account = await this.prisma.avitoAccount.findUnique({ where: { id: accountId } });
+    if (!account) throw new NotFoundException(`Account ${accountId} not found`);
+    return account;
   }
 
-  /**
-   * Use a refresh token to obtain new access & refresh tokens.
-   */
-  private async refreshAccessToken(
-    refreshToken: string,
-  ): Promise<AvitoTokens> {
-    const clientId = this.config.get<string>('AVITO_CLIENT_ID', '');
-    const clientSecret = this.config.get<string>('AVITO_CLIENT_SECRET', '');
-    const apiBaseUrl = this.config.get<string>(
-      'AVITO_API_BASE_URL',
-      'https://api.avito.ru',
-    );
+  // === Items/Listings ===
 
-    const response = await fetch(`${apiBaseUrl}/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        client_id: clientId,
-        client_secret: clientSecret,
-        refresh_token: refreshToken,
-      }).toString(),
-    });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      this.logger.error(
-        `Avito token refresh failed (${response.status}): ${errorBody}`,
-      );
-      throw new BadRequestException(
-        'Failed to refresh Avito tokens. The account may need to be reconnected.',
-      );
-    }
-
-    return response.json() as Promise<AvitoTokens>;
-  }
-
-  /**
-   * Encrypt an AvitoTokens response into a single encrypted string for DB storage.
-   */
-  private encryptTokens(tokens: AvitoTokens): string {
-    const expiresAt = new Date(
-      Date.now() + tokens.expires_in * 1000,
-    ).toISOString();
-
-    const payload: EncryptedTokenPayload = {
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token,
-      expiresAt,
-    };
-
-    return encrypt(JSON.stringify(payload));
-  }
-
-  /**
-   * Decrypt the stored encrypted token string back to a structured payload.
-   */
-  private decryptTokens(encryptedStr: string): EncryptedTokenPayload {
+  async getItems(accountId: string, options?: { page?: number; per_page?: number; status?: string }) {
+    const token = await this.getValidToken(accountId);
     try {
-      const json = decrypt(encryptedStr);
-      return JSON.parse(json) as EncryptedTokenPayload;
+      const response = await axios.get(`${AVITO_API}/core/v1/items`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: {
+          page: options?.page || 1,
+          per_page: options?.per_page || 25,
+          status: options?.status,
+        },
+      });
+      return response.data;
     } catch (error) {
-      this.logger.error('Failed to decrypt Avito tokens', error);
-      throw new InternalServerErrorException(
-        'Failed to decrypt stored tokens. The encryption key may have changed.',
-      );
+      this.logger.error(`Failed to get items for account ${accountId}`, error);
+      return { resources: [], meta: { page: 1, per_page: 25, total: 0 } };
     }
   }
 
-  /**
-   * Find an existing AvitoAccount ID for the project, or return a new cuid-style
-   * placeholder so Prisma upsert can handle both create and update paths.
-   */
-  private async findOrGenerateAccountId(projectId: string): Promise<string> {
-    const existing = await this.prisma.avitoAccount.findFirst({
-      where: { projectId },
-      select: { id: true },
+  async getItemById(accountId: string, itemId: string) {
+    const token = await this.getValidToken(accountId);
+    const response = await axios.get(`${AVITO_API}/core/v1/items/${itemId}`, {
+      headers: { Authorization: `Bearer ${token}` },
     });
+    return response.data;
+  }
 
-    // Return existing ID or a deterministic "not-found" ID that will trigger
-    // the `create` branch of the upsert.
-    return existing?.id ?? 'new-avito-account-placeholder';
+  async getItemStats(accountId: string, itemId: string) {
+    const token = await this.getValidToken(accountId);
+    const response = await axios.get(`${AVITO_API}/core/v1/items/${itemId}/stats`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+  }
+
+  // === Bids ===
+
+  async createBid(accountId: string, itemId: string, bidAmount: number, vasPackage?: string) {
+    const token = await this.getValidToken(accountId);
+    try {
+      const response = await axios.post(
+        `${AVITO_API}/core/v1/items/${itemId}/vas`,
+        { vas_package: vasPackage || 'x2_1', amount: bidAmount },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      // Store in local DB
+      await this.prisma.bids.create({
+        data: {
+          listing_id: itemId,
+          target_position: 1,
+          max_bid: bidAmount,
+          current_bid: bidAmount,
+          is_active: true,
+          strategy: 'maintain',
+        },
+      });
+      return response.data;
+    } catch (error) {
+      this.logger.error(`Bid creation failed`, error);
+      throw new BadRequestException('Failed to create bid');
+    }
+  }
+
+  async getBids(accountId: string, itemId?: string) {
+        const where: any = {};
+    if (itemId) where.listing_id = itemId;
+    return this.prisma.bids.findMany({ where, orderBy: { created_at: 'desc' } });
+  }
+
+  async getBidsBalance(accountId: string) {
+    const token = await this.getValidToken(accountId);
+    const response = await axios.get(`${AVITO_API}/core/v1/accounts/self/balance`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+  }
+
+  // === Messages ===
+
+  async getMessages(accountId: string, options?: { unreadOnly?: boolean; itemId?: string }) {
+    const token = await this.getValidToken(accountId);
+    try {
+      const response = await axios.get(`${AVITO_API}/messenger/v2/accounts/self/chats`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: {
+          unread_only: options?.unreadOnly || false,
+          item_id: options?.itemId,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      this.logger.error(`Failed to get messages`, error);
+      return { chats: [] };
+    }
+  }
+
+  async getChatMessages(accountId: string, chatId: string) {
+    const token = await this.getValidToken(accountId);
+    const response = await axios.get(`${AVITO_API}/messenger/v2/accounts/self/chats/${chatId}/messages`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+  }
+
+  async sendMessage(accountId: string, chatId: string, messageText: string) {
+    const token = await this.getValidToken(accountId);
+    const response = await axios.post(
+      `${AVITO_API}/messenger/v1/accounts/self/chats/${chatId}/messages`,
+      { message: { text: messageText }, type: 'text' },
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    return response.data;
+  }
+
+  // === Analytics ===
+
+  async getAnalytics(accountId: string, dateFrom?: string, dateTo?: string) {
+    const token = await this.getValidToken(accountId);
+    try {
+      const params: any = {};
+      if (dateFrom) params.date_from = dateFrom;
+      if (dateTo) params.date_to = dateTo;
+      const response = await axios.get(`${AVITO_API}/core/v1/accounts/self/stats`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params,
+      });
+      return response.data;
+    } catch (error) {
+      this.logger.error(`Analytics fetch failed`, error);
+      return { stats: [] };
+    }
+  }
+
+  // === Webhooks ===
+
+  async registerWebhook(accountId: string, webhookUrl: string, events?: string[]) {
+    const token = await this.getValidToken(accountId);
+    const response = await axios.post(
+      `${AVITO_API}/core/v1/webhooks`,
+      { url: webhookUrl, events: events || ['new_message', 'item_sold', 'bid_won'] },
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    return response.data;
   }
 }

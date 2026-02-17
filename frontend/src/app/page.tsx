@@ -57,8 +57,8 @@ const features = [
   },
     {
     icon: FlaskConical,
-    title: 'A/B Тестирование',
-    desc: 'Тестируйте заголовки, фото и цены для максимальной конверсии',
+    title: 'A/B-Тестировщик',
+    desc: 'AI автоматически тестирует гипотезы, выкладывает объявления и анализирует просмотры',
   },
 ];
 
@@ -91,7 +91,7 @@ export default function LandingPage() {
         <div className="mx-auto max-w-3xl">
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border bg-muted/50 px-4 py-1.5 text-sm text-muted-foreground">
             <Bot className="h-4 w-4" />
-            Платформа на базе AI + n8n
+            Анализ результатов, детальные отчёты и Платформа на базе ИИ и автоматизацииИИ и автоматизациявизуализация метрик
           </div>
           <h1 className="text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
             Автоматизируйте{' '}
@@ -151,7 +151,7 @@ export default function LandingPage() {
             {[
               { step: '1', title: 'Подключите аккаунт', desc: 'OAuth2 авторизация — безопасно и за 30 секунд' },
               { step: '2', title: 'Настройте модули', desc: 'Выберите стратегии ставок, шаблоны ответов, фильтры' },
-              { step: '3', title: 'Получайте результат', desc: 'n8n выполняет задачи, вы видите логи и метрики' },
+              { step: '3', title: 'Получайте результат', desc: 'Анализ результатов, детальные отчёты и визуализация метрик' },
             ].map((s) => (
               <div key={s.step} className="text-center">
                 <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-brand-500 text-white text-lg font-bold">
@@ -182,6 +182,54 @@ export default function LandingPage() {
 
       {/* Footer */}
       <PricingSection />
+
+            {/* Partners Section */}
+      <section className="py-24 px-4">
+        <div className="container mx-auto">
+          <h2 className="text-3xl font-bold text-center mb-4">
+            Наши партнёры
+          </h2>
+          <p className="text-center text-muted-foreground mb-12 max-w-2xl mx-auto">
+            Мы сотрудничаем с лучшими экспертами в области маркетинга и автоматизации бизнеса
+          </p>
+          
+          <div className="flex justify-center">
+            <a 
+              href="https://t.me/pozeminamarketolog" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="group relative overflow-hidden rounded-xl border border-border bg-card p-8 hover:shadow-xl transition-all duration-300 max-w-md w-full"
+            >
+              <div className="flex items-start gap-4">
+                <div className="shrink-0">
+                  <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+                    <svg className="h-8 w-8 text-primary" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
+                    </svg>
+                  </div>
+                </div>
+                
+                <div className="flex-1">
+                  <h3 className="text-xl font-semibold mb-2 group-hover:text-primary transition-colors">
+                    Telegram-канал Поземиной
+                  </h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Экспертные статьи по маркетингу и продвижению бизнеса. Полезные инструменты и кейсы для продавцов на Авито.
+                  </p>
+                  <div className="flex items-center text-sm text-primary">
+                    <span className="font-medium">Перейти в канал</span>
+                    <svg className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="absolute inset-0 bg-gradient-to-r from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+            </a>
+          </div>
+        </div>
+      </section>
 
       <footer className="border-t py-8">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 flex items-center justify-between text-sm text-muted-foreground">

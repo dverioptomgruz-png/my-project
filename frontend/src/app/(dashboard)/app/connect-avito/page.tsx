@@ -1,51 +1,113 @@
 'use client';
 
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, CheckCircle, Shield, Zap } from 'lucide-react';
 
 export default function ConnectAvitoPage() {
-  const handleConnectAvito = () => {
-    const clientId = process.env.NEXT_PUBLIC_AVITO_CLIENT_ID;
-    const redirectUri = encodeURIComponent(
-      `${window.location.origin}/api/auth/avito/callback`
-    );
-    const scope = 'autoload:reports,items:apply_vas,items:info,job:cv,job:resumes,job:write,messenger:read,messenger:write,ratings:read,short_term_rent:read,short_term_rent:write,stats:read,user:read,user_balance:read,user_operations:read';
-    const state = crypto.randomUUID();
-    
-    // Store state in sessionStorage for verification
-    sessionStorage.setItem('avito_oauth_state', state);
-    
-    const avitoAuthUrl = `https://www.avito.ru/oauth?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&scope=${scope}&state=${state}`;
-    
-    window.location.href = avitoAuthUrl;
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleConnectAvito = async () => {
+    try {
+      setIsConnecting(true);
+      setError('');
+      
+      const clientId = process.env.NEXT_PUBLIC_AVITO_CLIENT_ID;
+      const redirectUri = encodeURIComponent(
+        `${window.location.origin}/api/auth/avito/callback`
+      );
+      const scope = 'autoload:reports,items:apply,user:read';
+      const state = crypto.randomUUID();
+
+      sessionStorage.setItem('avito_oauth_state', state);
+
+      const avitoAuthUrl = `https://www.avito.ru/oauth?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&scope=${scope}&state=${state}`;
+
+      window.location.href = avitoAuthUrl;
+    } catch (err) {
+      setError('Ошибка при подключении Авито. Попробуйте ещё раз.');
+      setIsConnecting(false);
+    }
   };
 
   return (
-    <div className="container mx-auto py-10">
-      <Card className="max-w-lg mx-auto">
+    <div className="container mx-auto py-10 px-4 max-w-4xl">
+      <div className="mb-8">
+        <h1 className="text-4xl font-bold mb-2">Подключение Авито</h1>
+        <p className="text-muted-foreground">
+          Подключите ваш аккаунт Авито для начала автоматизации
+        </p>
+      </div>
+
+      {error && (
+        <div className="mb-6 p-4 border border-red-500 bg-red-50 dark:bg-red-950 rounded-lg">
+          <p className="text-red-600 dark:text-red-400">{error}</p>
+        </div>
+      )}
+
+      <div className="grid gap-6 md:grid-cols-2 mb-8">
+        <Card>
+          <CardHeader>
+            <Shield className="h-8 w-8 mb-2 text-primary" />
+            <CardTitle>Безопасное подключение</CardTitle>
+            <CardDescription>
+              Используем OAuth 2.0 для защищённого доступа
+            </CardDescription>
+          </CardHeader>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <Zap className="h-8 w-8 mb-2 text-primary" />
+            <CardTitle>Автоматизация</CardTitle>
+            <CardDescription>
+              Автоматическая синхронизация данных
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+
+      <Card className="mb-8">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <img src="/avito-logo.svg" alt="Avito" className="h-8 w-8" />
-            Подключение Авито
-          </CardTitle>
-          <CardDescription>
-            Подключите ваш аккаунт Авито для автоматизации управления объявлениями
-          </CardDescription>
+          <CardTitle>Что произойдёт после подключения?</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="text-sm text-muted-foreground">
-            <p>После подключения вы сможете:</p>
-            <ul className="list-disc list-inside mt-2 space-y-1">
-              <li>Просматривать статистику объявлений</li>
-              <li>Управлять сообщениями</li>
-              <li>Автоматически продвигать объявления</li>
-              <li>Отслеживать баланс и операции</li>
-            </ul>
-          </div>
-          <Button onClick={handleConnectAvito} className="w-full">
-            <ExternalLink className="mr-2 h-4 w-4" />
-            Подключить Авито
+        <CardContent>
+          <ul className="space-y-3">
+            <li className="flex items-start gap-3">
+              <CheckCircle className="h-5 w-5 mt-0.5 text-green-600 flex-shrink-0" />
+              <span>Просматривать статистику объявлений</span>
+            </li>
+            <li className="flex items-start gap-3">
+              <CheckCircle className="h-5 w-5 mt-0.5 text-green-600 flex-shrink-0" />
+              <span>Управлять сообщениями через AI-ассистента</span>
+            </li>
+            <li className="flex items-start gap-3">
+              <CheckCircle className="h-5 w-5 mt-0.5 text-green-600 flex-shrink-0" />
+              <span>Автоматически продвигать объявления</span>
+            </li>
+            <li className="flex items-start gap-3">
+              <CheckCircle className="h-5 w-5 mt-0.5 text-green-600 flex-shrink-0" />
+              <span>Отслеживать баланс и операции</span>
+            </li>
+          </ul>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Готовы начать?</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Button 
+            onClick={handleConnectAvito}
+            disabled={isConnecting}
+            size="lg"
+            className="w-full sm:w-auto"
+          >
+            <ExternalLink className="mr-2 h-5 w-5" />
+            {isConnecting ? 'Подключение...' : 'Подключить Авито'}
           </Button>
         </CardContent>
       </Card>
