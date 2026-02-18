@@ -34,7 +34,7 @@ const ROLE_BADGE_VARIANT: Record<User['role'], 'default' | 'success' | 'secondar
 };
 
 export default function ProfilePage() {
-  const { user, refreshProfile } = useAuth();
+  const { user, refreshAuth } = useAuth();
 
   const [profile, setProfile] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -70,7 +70,7 @@ export default function ProfilePage() {
         fullName: fullName.trim(),
       });
       setProfile(data);
-      await refreshProfile();
+      await refreshAuth();
       toast.success({ title: 'Сохранено', description: 'Профиль успешно обновлен' });
     } catch (err: any) {
       toast.error({
