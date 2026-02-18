@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { EventLevel } from '@prisma/client';
 
 @Injectable()
 export class N8nService {
@@ -26,20 +25,12 @@ export class N8nService {
     // Gather Avito account statuses
     const avitoAccounts = await this.prisma.avitoAccount.findMany({
       where,
-      select: {
-        id: true,
-        projectId: true,
-        avitoUserId: true,
-        status: true,
-        title: true,
-        updatedAt: true,
-      },
-    });
+      });
 
     // Gather latest system events
     const recentEvents = await this.prisma.systemEventLog.findMany({
       where: projectId ? { projectId } : {},
-      orderBy: { ts: 'desc' },
+      orderBy: { createdAt: 'desc' },
       take: 20,
     });
 
@@ -62,10 +53,11 @@ export class N8nService {
     const event = await this.prisma.systemEventLog.create({
       data: {
         projectId: data.projectId,
+            event: data.module || 'N8N_EVENT',
         module: data.module,
-        level: EventLevel.INFO,
+        level: 'INFO',
         message: `n8n execution: ${data.module}`,
-        metaJson: data.payload,
+        data: data.payload,
       },
     });
 
@@ -84,10 +76,11 @@ export class N8nService {
     const event = await this.prisma.systemEventLog.create({
       data: {
         projectId: data.projectId,
+            event: data.module || 'N8N_EVENT',
         module: data.module,
-        level: EventLevel.INFO,
+        level: 'INFO',
         message: `Workflow status update: ${data.module} -> ${data.status}`,
-        metaJson: { status: data.status },
+        data: { status: data.status },
       },
     });
 
@@ -107,8 +100,9 @@ export class N8nService {
     const event = await this.prisma.systemEventLog.create({
       data: {
         projectId: data.projectId,
+            event: data.module || 'N8N_EVENT',
         module: data.module,
-        level: (data.level as EventLevel) ?? EventLevel.WARNING,
+        level: data.level ?? 'WARNING',
         message: data.message,
       },
     });

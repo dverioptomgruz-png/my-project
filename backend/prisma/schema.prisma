@@ -657,6 +657,7 @@ enum one_time_token_type {
 // ===== A/B Testing Models =====
 
 model ABExperiment {
+    winnerVariantId  String?
   id                   String      @id @default(uuid())
   userId               String
   projectId            String?
@@ -750,6 +751,208 @@ model ABProduct {
   updatedAt         DateTime       @updatedAt
 
   campaign          ABCampaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@schema("public")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  passwordHash String?
+  role      String   @default("user")
+  tariff    String   @default("free")
+  avatarUrl String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  projects  ProjectMember[]
+  reviews   Review[]
+  assignedThreads  ChatThread[]  @relation("ChatThreadAssignee")
+
+  @@schema("public")
+}
+
+model Project {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  ownerId     String
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  members     ProjectMember[]
+  analytics   AnalyticsDaily[]
+  bidderRules      BidderRule[]
+  chatThreads      ChatThread[]
+  autoloadReports  AutoloadReport[]
+
+  @@schema("public")
+}
+
+model ProjectMember {
+  id        String   @id @default(uuid())
+  userId    String
+  projectId String
+  role      String   @default("member")
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+  project   Project  @relation(fields: [projectId], references: [id])
+
+  @@unique([projectId, userId])
+  @@schema("public")
+}
+
+model CompetitorSnapshot {
+  id          String   @id @default(uuid())
+  listingId   String?
+  competitor  String
+  price       Float?
+  title       String?
+  url         String?
+  projectId  String?
+  query       String?
+  resultsJson Json?
+  data        Json?
+  createdAt   DateTime @default(now())
+
+  @@schema("public")
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  userId    String?
+  listingId String?
+  rating    Int?
+  text      String?
+  author    String?
+  source    String?
+  projectId   String?
+  avitoReviewId String?
+  aiReplyText String?
+  published   Boolean  @default(false)
+  status      String   @default("new")
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@schema("public")
+}
+
+model SystemEventLog {
+  id        String   @id @default(uuid())
+  event     String
+  level     String   @default("info")
+  message   String?
+  module    String?
+  data      Json?
+  userId    String?
+  projectId String?
+  createdAt DateTime @default(now())
+
+  @@schema("public")
+}
+
+model Crm {
+  id         String   @id @default(uuid())
+  name       String
+  type       String?
+  apiKey     String?
+  settings   Json?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@schema("public")
+}
+
+model AnalyticsDaily {
+  id        String   @id @default(uuid())
+  projectId String
+  date      DateTime
+  views     Int      @default(0)
+  favorites Int      @default(0)
+  contacts  Int      @default(0)
+  chats     Int      @default(0)
+  calls     Int      @default(0)
+  spend     Float    @default(0)
+  cpl       Float    @default(0)
+  roi       Float    @default(0)
+  romi      Float    @default(0)
+  project   Project  @relation(fields: [projectId], references: [id])
+
+  @@unique([projectId, date])
+  @@schema("public")
+}
+
+model BidderRule {
+  id          String   @id @default(uuid())
+  projectId   String
+  name        String
+  enabled     Boolean  @default(true)
+  strategy    String   @default("HOLD_POSITION")
+  minBid      Int      @default(0)
+  maxBid      Int      @default(0)
+  dailyBudget Int      @default(0)
+  schedule    Json?
+  itemFilter  Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  project     Project  @relation(fields: [projectId], references: [id])
+
+  executionLogs  BidderExecutionLog[]
+  @@schema("public")
+}
+
+
+model ChatThread {
+  id             String    @id @default(uuid())
+  projectId      String
+  avitoChatId    String
+  status         String    @default("OPEN")
+  assignedToId   String?
+  lastMessageAt  DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  messages       ChatMessage[]
+  assignedTo     User?     @relation("ChatThreadAssignee", fields: [assignedToId], references: [id])
+  project        Project   @relation(fields: [projectId], references: [id])
+
+  @@schema("public")
+}
+
+model ChatMessage {
+  id          String   @id @default(uuid())
+  threadId    String
+  direction   String
+  text        String
+  aiGenerated Boolean  @default(false)
+  rawJson     Json?
+  ts          DateTime @default(now())
+  thread      ChatThread @relation(fields: [threadId], references: [id])
+
+  @@schema("public")
+}
+
+model AutoloadReport {
+  id        String   @id @default(uuid())
+  projectId String
+  total     Int
+  ok        Int
+  failed    Int
+  rawJson   Json?
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id])
+
+  @@schema("public")
+}
+
+model BidderExecutionLog {
+  id        String   @id @default(uuid())
+  ruleId    String
+  action    String?
+  result    Json?
+  createdAt DateTime @default(now())
+  rule      BidderRule @relation(fields: [ruleId], references: [id])
 
   @@schema("public")
 }

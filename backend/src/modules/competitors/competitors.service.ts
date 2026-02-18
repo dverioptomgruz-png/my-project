@@ -19,7 +19,7 @@ export class CompetitorsService {
     const [data, total] = await Promise.all([
       this.prisma.competitorSnapshot.findMany({
         where: { projectId },
-        orderBy: { ts: 'desc' },
+        orderBy: { createdAt: 'desc' },
         skip,
         take,
       }),
@@ -39,7 +39,7 @@ export class CompetitorsService {
         projectId: data.projectId,
         query: data.query,
         resultsJson: data.resultsJson ?? undefined,
-      },
+      } as any,
     });
   }
 

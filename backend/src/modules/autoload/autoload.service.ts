@@ -9,7 +9,7 @@ export class AutoloadService {
     const [data, total] = await Promise.all([
       this.prisma.autoloadReport.findMany({
         where: { projectId },
-        orderBy: { ts: 'desc' },
+        orderBy: { createdAt: 'desc' },
         skip,
         take,
       }),

@@ -8,3 +8,16 @@ out
 
 # Certbot
 certbot/
+
+
+# Temp/backup files
+*.bak
+*.swp
+*.swo
+.env.local
+.env.production
+.env.local.bak
+.env.local.swp
+
+# n8n data
+n8n_data/

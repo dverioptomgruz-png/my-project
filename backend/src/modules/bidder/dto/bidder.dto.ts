@@ -29,7 +29,7 @@ export class CreateBidderRuleDto {
 
   @ApiProperty({ enum: BidderStrategyEnum, example: BidderStrategyEnum.HOLD_POSITION })
   @IsEnum(BidderStrategyEnum)
-  strategy: BidderStrategyEnum;
+  strategy: string;
 
   @ApiProperty({ example: 10 })
   @IsNumber()

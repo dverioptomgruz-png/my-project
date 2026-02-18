@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
-import { EventLevel } from '@prisma/client';
+// EventLevel enum removed - using string type
 
 export interface ServiceStatus {
   name: string;
@@ -58,13 +58,13 @@ export class SystemService {
       where.projectId = projectId;
     }
     if (level) {
-      where.level = level as EventLevel;
+      where.level = level;
     }
 
     const [data, total] = await Promise.all([
       this.prisma.systemEventLog.findMany({
         where,
-        orderBy: { ts: 'desc' },
+        orderBy: { createdAt: 'desc' },
         skip,
         take,
       }),

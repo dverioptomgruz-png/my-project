@@ -1,4 +1,4 @@
-import { PrismaClient, UserRole } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
@@ -15,7 +15,7 @@ async function main() {
       email: 'admin@neuro-assistant.ru',
       passwordHash: adminHash,
       name: 'Администратор',
-      role: UserRole.ADMIN,
+      role: 'admin',
     },
   });
   console.log(`Admin user: ${admin.email}`);
@@ -29,7 +29,7 @@ async function main() {
       email: 'manager@neuro-assistant.ru',
       passwordHash: managerHash,
       name: 'Менеджер Демо',
-      role: UserRole.MANAGER,
+      role: 'manager',
     },
   });
   console.log(`Manager user: ${manager.email}`);
@@ -54,7 +54,7 @@ async function main() {
     create: {
       projectId: project.id,
       userId: admin.id,
-      roleInProject: 'OWNER',
+      role: 'OWNER',
     },
   });
 
@@ -66,7 +66,7 @@ async function main() {
     create: {
       projectId: project.id,
       userId: manager.id,
-      roleInProject: 'EDITOR',
+      role: 'EDITOR',
     },
   });
 

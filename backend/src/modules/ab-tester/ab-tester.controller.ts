@@ -196,7 +196,7 @@ export class ABTesterController {
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
   ) {
-    return this.abTesterService.getExperimentStats(user.id, id, dateFrom, dateTo);
+    return this.abTesterService.getExperimentWithStats(user.id, id, dateFrom, dateTo);
   }
 
   @Get('experiments/:id/winner')

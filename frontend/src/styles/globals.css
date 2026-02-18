@@ -293,3 +293,50 @@
     transform: scale(0.95);
   }
 }
+
+
+/* Supabase Auth UI Styles */
+.auth-container {
+  @apply w-full;
+}
+
+.auth-container label {
+  @apply block text-sm font-medium text-foreground mb-2;
+}
+
+.auth-container input {
+  @apply w-full px-3 py-2 border border-input rounded-md bg-background text-foreground;
+  @apply focus:outline-none focus:ring-2 focus:ring-ring;
+}
+
+.auth-button {
+  @apply w-full py-2 px-4 bg-primary text-primary-foreground rounded-md font-medium;
+  @apply hover:bg-primary/90 transition-colors;
+  @apply mt-4;
+}
+
+.auth-input {
+  @apply w-full px-3 py-2 border border-input rounded-md bg-background text-foreground;
+  @apply focus:outline-none focus:ring-2 focus:ring-ring;
+  @apply mb-4;
+}
+
+/* Fix label and input spacing */
+.auth-container [class*="supabase-auth-ui"] label {
+  @apply block mb-1 text-sm font-medium;
+}
+
+.auth-container [class*="supabase-auth-ui"] input {
+  @apply block w-full mb-4;
+}
+
+/* Fix button styling */
+.auth-container button[type="submit"] {
+  @apply w-full py-2.5 px-4 bg-primary text-primary-foreground rounded-md font-medium;
+  @apply hover:bg-primary/90 transition-colors cursor-pointer;
+}
+
+/* Fix links styling */
+.auth-container a {
+  @apply text-primary hover:underline block mt-3 text-sm text-center;
+}

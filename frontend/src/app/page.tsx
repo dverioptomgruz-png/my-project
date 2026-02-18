@@ -91,7 +91,7 @@ export default function LandingPage() {
         <div className="mx-auto max-w-3xl">
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border bg-muted/50 px-4 py-1.5 text-sm text-muted-foreground">
             <Bot className="h-4 w-4" />
-            Анализ результатов, детальные отчёты и Платформа на базе ИИ и автоматизацииИИ и автоматизациявизуализация метрик
+                          Платформа на базе ИИ для автоматизации Авито
           </div>
           <h1 className="text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
             Автоматизируйте{' '}

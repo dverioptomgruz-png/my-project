@@ -63,6 +63,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user, fetchProfile]);
 
   useEffect(() => {
+      // Guard: if Supabase not configured, skip auth
+      if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+        setIsLoading(false);
+        return;
+      }
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         const currentUser = session?.user ?? null;
@@ -76,6 +81,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     );
 
+      let fallbackTimer: ReturnType<typeof setTimeout>;
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       const currentUser = session?.user ?? null;
       setUser(currentUser);
@@ -83,9 +89,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await fetchProfile(currentUser.id);
       }
       setIsLoading(false);
+    }).catch((err) => {
+      if (err?.name !== 'AbortError') {
+        console.error('getSession error:', err);
+      }
+      setIsLoading(false);
+
+          // Fallback timeout: if Supabase doesn't respond in 3s, stop loading
+    fallbackTimer = setTimeout(() => {
+      setIsLoading(false);
+    }, 3000);
     });
 
-    return () => subscription.unsubscribe();
+        return () => { subscription.unsubscribe(); clearTimeout(fallbackTimer); };
   }, [supabase, fetchProfile]);
 
   const login = useCallback(async (email: string, password: string) => {

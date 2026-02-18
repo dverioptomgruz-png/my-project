@@ -5,7 +5,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ProjectRole } from '@prisma/client';
+
 import { CreateProjectDto, UpdateProjectDto, AddMemberDto } from './dto/projects.dto';
 
 @Injectable()
@@ -24,7 +24,7 @@ export class ProjectsService {
         members: {
           create: {
             userId,
-            roleInProject: ProjectRole.OWNER,
+            role: 'OWNER',
           },
         },
       },
@@ -77,8 +77,8 @@ export class ProjectsService {
   /** Update a project (only owner or editor). */
   async update(projectId: string, userId: string, dto: UpdateProjectDto) {
     await this.assertMemberRole(projectId, userId, [
-      ProjectRole.OWNER,
-      ProjectRole.EDITOR,
+      'OWNER',
+      'EDITOR',
     ]);
 
     return this.prisma.project.update({
@@ -94,7 +94,7 @@ export class ProjectsService {
 
   /** Delete a project (only owner). */
   async delete(projectId: string, userId: string) {
-    await this.assertMemberRole(projectId, userId, [ProjectRole.OWNER]);
+    await this.assertMemberRole(projectId, userId, ['OWNER']);
 
     await this.prisma.project.delete({ where: { id: projectId } });
     return { deleted: true };
@@ -103,8 +103,8 @@ export class ProjectsService {
   /** Add a member to a project (only owner or editor). */
   async addMember(projectId: string, userId: string, dto: AddMemberDto) {
     await this.assertMemberRole(projectId, userId, [
-      ProjectRole.OWNER,
-      ProjectRole.EDITOR,
+      'OWNER',
+      'EDITOR',
     ]);
 
     // Verify the target user exists
@@ -129,7 +129,7 @@ export class ProjectsService {
       data: {
         projectId,
         userId: dto.userId,
-        roleInProject: dto.roleInProject as ProjectRole,
+        role: dto.roleInProject ,
       },
       include: {
         user: { select: { id: true, email: true, name: true } },
@@ -139,7 +139,7 @@ export class ProjectsService {
 
   /** Remove a member from a project (only owner). */
   async removeMember(projectId: string, requesterId: string, targetUserId: string) {
-    await this.assertMemberRole(projectId, requesterId, [ProjectRole.OWNER]);
+    await this.assertMemberRole(projectId, requesterId, ['OWNER']);
 
     const membership = await this.prisma.projectMember.findUnique({
       where: {
@@ -152,7 +152,7 @@ export class ProjectsService {
     }
 
     // Prevent owner from removing themselves
-    if (membership.roleInProject === ProjectRole.OWNER && targetUserId === requesterId) {
+    if (membership.role === 'OWNER' && targetUserId === requesterId) {
       throw new ForbiddenException('Owner cannot remove themselves from the project');
     }
 
@@ -172,7 +172,7 @@ export class ProjectsService {
   private async assertMemberRole(
     projectId: string,
     userId: string,
-    allowedRoles: ProjectRole[],
+    allowedRoles: string[],
   ) {
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
@@ -191,7 +191,7 @@ export class ProjectsService {
       throw new ForbiddenException('You are not a member of this project');
     }
 
-    if (!allowedRoles.includes(membership.roleInProject)) {
+    if (!allowedRoles.includes(membership.role)) {
       throw new ForbiddenException(
         `Requires one of the following roles: ${allowedRoles.join(', ')}`,
       );

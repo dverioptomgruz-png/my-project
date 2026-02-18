@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateBidderRuleDto, UpdateBidderRuleDto } from './dto/bidder.dto';
-import { BidderStrategy } from '@prisma/client';
+
 
 @Injectable()
 export class BidderService {
@@ -12,7 +12,7 @@ export class BidderService {
       data: {
         projectId: dto.projectId,
         name: dto.name,
-        strategy: dto.strategy as BidderStrategy,
+        strategy: dto.strategy ,
         minBid: dto.minBid,
         maxBid: dto.maxBid,
         dailyBudget: dto.dailyBudget,
@@ -46,7 +46,7 @@ export class BidderService {
       where: { id },
       data: {
         ...(dto.name !== undefined && { name: dto.name }),
-        ...(dto.strategy !== undefined && { strategy: dto.strategy as BidderStrategy }),
+        ...(dto.strategy !== undefined && { strategy: dto.strategy  }),
         ...(dto.minBid !== undefined && { minBid: dto.minBid }),
         ...(dto.maxBid !== undefined && { maxBid: dto.maxBid }),
         ...(dto.dailyBudget !== undefined && { dailyBudget: dto.dailyBudget }),
@@ -77,7 +77,7 @@ export class BidderService {
     const [data, total] = await Promise.all([
       this.prisma.bidderExecutionLog.findMany({
         where: { ruleId },
-        orderBy: { ts: 'desc' },
+        orderBy: { createdAt: 'desc' },
         skip,
         take,
       }),

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ReviewStatus } from '@prisma/client';
+
 
 @Injectable()
 export class ReviewsService {
@@ -9,12 +9,12 @@ export class ReviewsService {
   async getReviews(projectId: string, status?: string) {
     const where: any = { projectId };
     if (status) {
-      where.status = status as ReviewStatus;
+      where.status = status;
     }
 
     return this.prisma.review.findMany({
       where,
-      orderBy: { ts: 'desc' },
+      orderBy: { createdAt: 'desc' },
     });
   }
 
@@ -41,7 +41,7 @@ export class ReviewsService {
         avitoReviewId: data.avitoReviewId,
         rating: data.rating,
         text: data.text,
-        status: (data.status as ReviewStatus) ?? ReviewStatus.NEW,
+        status: (data.status) ?? "new",
       },
     });
   }
@@ -53,7 +53,7 @@ export class ReviewsService {
       where: { id },
       data: {
         aiReplyText,
-        status: ReviewStatus.AI_DRAFT,
+        status: 'ai_draft',
       },
     });
   }
@@ -65,7 +65,7 @@ export class ReviewsService {
       where: { id },
       data: {
         published: true,
-        status: ReviewStatus.PUBLISHED,
+        status: 'published',
       },
     });
   }

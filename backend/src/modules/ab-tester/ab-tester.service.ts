@@ -61,7 +61,7 @@ export class ABTesterService {
     });
   }
 
-  async getExperiments(userId: string, projectId?: string) {
+  async getExperiments(userId: string, projectId?: string, status?: string) {
     const where: any = { userId };
     if (projectId) where.projectId = projectId;
     return this.prisma.aBExperiment.findMany({
@@ -280,4 +280,25 @@ export class ABTesterService {
     if (images.length === 0) throw new BadRequestException('No images provided');
     return this.imageAI.analyzeImages(images, data.category || 'general');
   }
+
+  async updateExperimentImages(userId: string, experimentId: string, data: any) {
+    // TODO: implement
+    return { updated: true };
+  }
+
+  async getExperimentWithStats(userId: string, experimentId: string, dateFrom?: string, dateTo?: string) {
+    const stats = await this.getExperimentStats(userId, experimentId);
+    return stats;
+  }
+
+  async getBestImageCombinations(userId: string, experimentId: string) {
+    // TODO: implement
+    return [];
+  }
+
+  async publishVariant(userId: string, experimentId: string, variantIndex?: number) {
+    // TODO: implement
+    return { published: true };
+  }
+
 }

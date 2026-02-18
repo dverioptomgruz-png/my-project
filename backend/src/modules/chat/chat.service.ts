@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ChatStatus, MessageDirection } from '@prisma/client';
+
 
 @Injectable()
 export class ChatService {
@@ -9,7 +9,7 @@ export class ChatService {
   async getThreads(projectId: string, status?: string) {
     const where: any = { projectId };
     if (status) {
-      where.status = status as ChatStatus;
+      where.status = status ;
     }
 
     return this.prisma.chatThread.findMany({
@@ -60,7 +60,7 @@ export class ChatService {
       data: {
         projectId: data.projectId,
         avitoChatId: data.avitoChatId,
-        status: (data.status as ChatStatus) ?? ChatStatus.OPEN,
+        status: (data.status ) ?? 'OPEN',
         assignedToId: data.assignedToId,
       },
       include: {
@@ -86,7 +86,7 @@ export class ChatService {
     const message = await this.prisma.chatMessage.create({
       data: {
         threadId,
-        direction: data.direction as MessageDirection,
+        direction: data.direction ,
         text: data.text,
         aiGenerated: data.aiGenerated ?? false,
         rawJson: data.rawJson ?? undefined,
@@ -107,7 +107,7 @@ export class ChatService {
 
     return this.prisma.chatThread.update({
       where: { id: threadId },
-      data: { status: status as ChatStatus },
+      data: { status: status  },
     });
   }
 }
