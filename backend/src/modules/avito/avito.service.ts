@@ -18,6 +18,7 @@ export class AvitoService {
   // === Token Management ===
 
   private async getValidToken(accountId: string): Promise<string> {
+    if (!accountId) throw new BadRequestException("accountId is required");
     const account = await this.prisma.avitoAccount.findUnique({ where: { id: accountId } });
     if (!account) throw new NotFoundException(`AvitoAccount ${accountId} not found`);
     if (!account.access_token) throw new BadRequestException('No access token for this account');

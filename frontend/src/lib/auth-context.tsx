@@ -1,146 +1,116 @@
 'use client';
 
-import React, {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
-import { createClient } from './supabase/client';
-import type { User } from '@supabase/supabase-js';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 
-export interface Profile {
+const API_URL = '';
+
+interface User {
   id: string;
-  email: string | null;
-  full_name: string | null;
-  avatar_url: string | null;
-  phone: string | null;
-  company_name: string | null;
-  tariff_plan: string | null;
-  tariff_expires_at: string | null;
-  created_at: string | null;
-  updated_at: string | null;
+  email: string;
+  name?: string;
+  role: string;
 }
 
 interface AuthState {
   user: User | null;
-  profile: Profile | null;
   isLoading: boolean;
-  isAuthenticated: boolean;
+  error: string | null;
 }
 
 interface AuthContextType extends AuthState {
-  login: (email: string, password: string) => Promise<{ error?: string }>;
-  register: (email: string, password: string, name: string) => Promise<{ error?: string }>;
-  logout: () => Promise<void>;
-  refreshProfile: () => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, name?: string) => Promise<void>;
+  logout: () => void;
+  refreshAuth: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+  return ctx;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [state, setState] = useState<AuthState>({ user: null, isLoading: true, error: null });
 
-  const supabase = useMemo(() => createClient(), []);
-
-  const fetchProfile = useCallback(async (userId: string) => {
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-    setProfile(data as Profile | null);
-  }, [supabase]);
-
-  const refreshProfile = useCallback(async () => {
-    if (user) {
-      await fetchProfile(user.id);
+  const fetchProfile = useCallback(async () => {
+    const token = localStorage.getItem('accessToken');
+    if (!token) {
+      setState({ user: null, isLoading: false, error: null });
+      return;
     }
-  }, [user, fetchProfile]);
-
-  useEffect(() => {
-      // Guard: if Supabase not configured, skip auth
-      if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-        setIsLoading(false);
-        return;
+    try {
+      const res = await fetch(`${API_URL}/api/auth/profile`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setState({ user: data, isLoading: false, error: null });
+      } else {
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        setState({ user: null, isLoading: false, error: null });
       }
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        const currentUser = session?.user ?? null;
-        setUser(currentUser);
-        if (currentUser) {
-          await fetchProfile(currentUser.id);
-        } else {
-          setProfile(null);
-        }
-        setIsLoading(false);
-      }
-    );
-
-      let fallbackTimer: ReturnType<typeof setTimeout>;
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      const currentUser = session?.user ?? null;
-      setUser(currentUser);
-      if (currentUser) {
-        await fetchProfile(currentUser.id);
-      }
-      setIsLoading(false);
-    }).catch((err) => {
-      if (err?.name !== 'AbortError') {
-        console.error('getSession error:', err);
-      }
-      setIsLoading(false);
-
-          // Fallback timeout: if Supabase doesn't respond in 3s, stop loading
-    fallbackTimer = setTimeout(() => {
-      setIsLoading(false);
-    }, 3000);
-    });
-
-        return () => { subscription.unsubscribe(); clearTimeout(fallbackTimer); };
-  }, [supabase, fetchProfile]);
+    } catch {
+      setState({ user: null, isLoading: false, error: null });
+    }
+  }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return { error: error.message };
-    return {};
-  }, [supabase]);
-
-  const register = useCallback(async (email: string, password: string, name: string) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { full_name: name } },
+    const res = await fetch(`${API_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
     });
-    if (error) return { error: error.message };
-    return {};
-  }, [supabase]);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || 'Login failed');
+    }
+    const data = await res.json();
+    localStorage.setItem('accessToken', data.accessToken);
+    localStorage.setItem('refreshToken', data.refreshToken);
+    setState({ user: data.user, isLoading: false, error: null });
+  }, []);
 
-  const logout = useCallback(async () => {
-    await supabase.auth.signOut();
-    setProfile(null);
-  }, [supabase]);
+  const register = useCallback(async (email: string, password: string, name?: string) => {
+    const res = await fetch(`${API_URL}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, name }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || 'Registration failed');
+    }
+    const data = await res.json();
+    localStorage.setItem('accessToken', data.accessToken);
+    localStorage.setItem('refreshToken', data.refreshToken);
+    setState({ user: data.user, isLoading: false, error: null });
+  }, []);
+
+  const logout = useCallback(() => {
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    setState({ user: null, isLoading: false, error: null });
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setState(prev => prev.isLoading ? { ...prev, isLoading: false } : prev);
+    }, 3000);
+    fetchProfile();
+    return () => clearTimeout(timer);
+  }, [fetchProfile]);
 
   const value = useMemo(() => ({
-    user,
-    profile,
-    isLoading,
-    isAuthenticated: !!user,
+    ...state,
     login,
     register,
     logout,
-    refreshProfile,
-  }), [user, profile, isLoading, login, register, logout, refreshProfile]);
+    refreshAuth: fetchProfile,
+  }), [state, login, register, logout, fetchProfile]);
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within AuthProvider');
-  return context;
+  return React.createElement(AuthContext.Provider, { value }, children);
 }

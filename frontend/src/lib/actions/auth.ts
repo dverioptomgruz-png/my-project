@@ -1,101 +1,52 @@
 'use server';
 
-import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { revalidatePath } from 'next/cache';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
 export async function signUp(formData: FormData) {
-  const cookieStore = await cookies();
-  
-  const supabase = createServerClient(supabaseUrl, supabaseKey, {
-    cookies: {
-      getAll() {
-        return cookieStore.getAll();
-      },
-      setAll(cookiesToSet) {
-        try {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options)
-          );
-        } catch {}
-      },
-    },
-  });
-  
   const email = formData.get('email') as string;
   const password = formData.get('password') as string;
-  const full_name = formData.get('full_name') as string;
-
-  const { error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: { data: { full_name } },
-  });
-
-  if (error) {
-    console.error('Sign up error:', error);
-    redirect('/auth/register?error=' + encodeURIComponent(error.message));
+  const name = formData.get('full_name') as string;
+  try {
+    const res = await fetch(API_URL + '/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, name }) });
+    const data = await res.json();
+    if (!res.ok) { redirect('/auth/register?error=' + encodeURIComponent(data.message || 'Registration failed')); }
+    const cookieStore = await cookies();
+    cookieStore.set('access_token', data.access_token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' as const, maxAge: 86400, path: '/' });
+    if (data.refresh_token) { cookieStore.set('refresh_token', data.refresh_token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' as const, maxAge: 604800, path: '/' }); }
+  } catch (e: any) {
+    if (e?.digest?.startsWith('NEXT_REDIRECT')) throw e;
+    redirect('/auth/register?error=' + encodeURIComponent(e.message || 'Registration failed'));
   }
-
   revalidatePath('/', 'layout');
   redirect('/app');
 }
 
 export async function signIn(formData: FormData) {
-  const cookieStore = await cookies();
-  
-  const supabase = createServerClient(supabaseUrl, supabaseKey, {
-    cookies: {
-      getAll() {
-        return cookieStore.getAll();
-      },
-      setAll(cookiesToSet) {
-        try {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options)
-          );
-        } catch {}
-      },
-    },
-  });
-
   const email = formData.get('email') as string;
   const password = formData.get('password') as string;
-
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-
-  if (error) {
-    console.error('Sign in error:', error);
-    redirect('/auth/login?error=' + encodeURIComponent(error.message));
+  try {
+    const res = await fetch(API_URL + '/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+    const data = await res.json();
+    if (!res.ok) { redirect('/auth/login?error=' + encodeURIComponent(data.message || 'Invalid credentials')); }
+    const cookieStore = await cookies();
+    cookieStore.set('access_token', data.access_token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' as const, maxAge: 86400, path: '/' });
+    if (data.refresh_token) { cookieStore.set('refresh_token', data.refresh_token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' as const, maxAge: 604800, path: '/' }); }
+  } catch (e: any) {
+    if (e?.digest?.startsWith('NEXT_REDIRECT')) throw e;
+    redirect('/auth/login?error=' + encodeURIComponent(e.message || 'Login failed'));
   }
-
   revalidatePath('/', 'layout');
   redirect('/app');
 }
 
 export async function signOut() {
   const cookieStore = await cookies();
-  
-  const supabase = createServerClient(supabaseUrl, supabaseKey, {
-    cookies: {
-      getAll() {
-        return cookieStore.getAll();
-      },
-      setAll(cookiesToSet) {
-        try {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options)
-          );
-        } catch {}
-      },
-    },
-  });
-  
-  await supabase.auth.signOut();
+  cookieStore.delete('access_token');
+  cookieStore.delete('refresh_token');
   revalidatePath('/', 'layout');
   redirect('/auth/login');
 }
