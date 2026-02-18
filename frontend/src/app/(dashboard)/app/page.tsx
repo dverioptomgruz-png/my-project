@@ -38,7 +38,7 @@ interface DashboardStats {
 }
 
 export default function DashboardPage() {
-    const { user, profile } = useAuth();
+    const { user } = useAuth();
 const [stats, setStats] = useState<DashboardStats>({
     projectsCount: 0,
     activeAvitoAccounts: 0,
@@ -168,7 +168,7 @@ const [stats, setStats] = useState<DashboardStats>({
     <div className="space-y-8">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">
-          Добро пожаловать{profile?.full_name ? `, ${profile.full_name}` : ''}
+          Добро пожаловать{user?.name ? `, ${user.name}` : ''}
         </h1>
         <p className="mt-1 text-[hsl(var(--muted-foreground))]">
           Обзор вашего рабочего пространства Нейро-Ассистент
