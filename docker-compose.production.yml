@@ -1,43 +1,40 @@
-version: "3.8"
+version: '3.8'
 
 services:
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: neuro-backend
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
+    expose:
+      - "4000"
     env_file:
-      - ./backend/.env
+      - ./backend/.env.production
+    restart: unless-stopped
     networks:
       - app-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8000/api"]
+      test: ["CMD", "curl", "-f", "http://localhost:4000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 40s
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: neuro-frontend
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     env_file:
-      - ./frontend/.env.local
+      - ./frontend/.env.production
     depends_on:
       - backend
+    restart: unless-stopped
     networks:
       - app-network
 
   nginx:
     image: nginx:alpine
-    container_name: neuro-nginx
-    restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
@@ -47,18 +44,42 @@ services:
       - ./certbot/conf:/etc/letsencrypt:ro
       - ./certbot/www:/var/www/certbot:ro
     depends_on:
-      - frontend
       - backend
+      - frontend
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  n8n:
+    image: n8nio/n8n:latest
+    expose:
+      - "5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_AUTH_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_AUTH_PASSWORD:-changeme}
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_SERVICE_TOKEN=${N8N_SERVICE_TOKEN}
+      - WEBHOOK_URL=http://backend:4000
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - backend
+    restart: unless-stopped
     networks:
       - app-network
 
   certbot:
     image: certbot/certbot
-    container_name: neuro-certbot
     volumes:
       - ./certbot/conf:/etc/letsencrypt
       - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
 
 networks:
   app-network:
     driver: bridge
+
+volumes:
+  n8n_data:

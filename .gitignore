@@ -21,3 +21,13 @@ certbot/
 
 # n8n data
 n8n_data/
+# Database backups
+db-backups/
+
+# Certbot
+certbot/
+
+# Production env files (contain secrets)
+backend/.env
+frontend/.env
+
