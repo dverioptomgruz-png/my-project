@@ -439,4 +439,376 @@ export class AutoloadService {
       this.logger.error('CRON: syncAutoloadReports failed', err);
     }
   }
+  // =============================================
+  // MULTI-CATEGORY ARCHITECTURE (reyting.pro pattern)
+  // =============================================
+
+  /** Sync category tree from Avito API */
+  async syncCategoryTree() {
+    this.logger.log('Syncing Avito category tree...');
+    try {
+      const tree = await this.getCategoryTree();
+      if (!tree?.categories) return { synced: 0 };
+
+      let synced = 0;
+      for (const cat of tree.categories) {
+        await this.syncCategoryNode(cat, null, 0);
+        synced++;
+      }
+
+      this.logger.log(`Category tree synced: ${synced} root categories`);
+      return { synced };
+    } catch (err) {
+      this.logger.error('syncCategoryTree failed', err);
+      throw new BadRequestException('Failed to sync category tree');
+    }
+  }
+
+  private async syncCategoryNode(node: any, parentSlug: string | null, level: number) {
+    const slug = node.slug || node.id?.toString();
+    if (!slug) return;
+
+    await this.prisma.autoloadCategory.upsert({
+      where: { slug },
+      update: {
+        nameRu: node.name || node.title || slug,
+        nameEn: node.name_en || null,
+        parentSlug,
+        path: node.path || node.name || slug,
+        level,
+        avitoId: node.id || 0,
+        lastSyncAt: new Date(),
+      },
+      create: {
+        slug,
+        avitoId: node.id || 0,
+        nameRu: node.name || node.title || slug,
+        nameEn: node.name_en || null,
+        parentSlug,
+        path: node.path || node.name || slug,
+        level,
+        lastSyncAt: new Date(),
+      },
+    });
+
+    // Recurse into children
+    if (node.children?.length) {
+      for (const child of node.children) {
+        await this.syncCategoryNode(child, slug, level + 1);
+      }
+    }
+  }
+
+    /** Sync fields for a specific category from Avito API */
+  async syncCategoryFields(categorySlug: string) {
+    const category = await this.prisma.autoloadCategory.findUnique({
+      where: { slug: categorySlug },
+    });
+    if (!category) throw new NotFoundException(`Category ${categorySlug} not found`);
+
+    try {
+      const fieldsData = await this.getCategoryFields(categorySlug);
+      if (!fieldsData?.fields) return { synced: 0 };
+
+      let synced = 0;
+      for (const field of fieldsData.fields) {
+        const fieldSlug = field.slug || field.name_en || field.name;
+        await this.prisma.autoloadCategoryField.upsert({
+          where: { categoryId_slug: { categoryId: category.id, slug: fieldSlug } },
+          update: {
+            name: field.name || fieldSlug,
+            nameEn: field.name_en || null,
+            fieldType: field.type || 'text',
+            isRequired: field.required || false,
+            description: field.description || null,
+            defaultValue: field.default_value || null,
+            options: field.values || null,
+            group: field.group || null,
+            catalogUrl: field.catalog_url || null,
+            sortOrder: synced,
+          },
+          create: {
+            categoryId: category.id,
+            slug: fieldSlug,
+            name: field.name || fieldSlug,
+            nameEn: field.name_en || null,
+            fieldType: field.type || 'text',
+            isRequired: field.required || false,
+            description: field.description || null,
+            defaultValue: field.default_value || null,
+            options: field.values || null,
+            group: field.group || null,
+            catalogUrl: field.catalog_url || null,
+            sortOrder: synced,
+          },
+        });
+        synced++;
+      }
+
+      await this.prisma.autoloadCategory.update({
+        where: { id: category.id },
+        data: { fieldsCount: synced, lastSyncAt: new Date() },
+      });
+
+      return { categorySlug, synced };
+    } catch (err) {
+      this.logger.error(`syncCategoryFields failed for ${categorySlug}`, err);
+      throw new BadRequestException('Failed to sync category fields');
+    }
+  }
+
+    // === Category CRUD ===
+
+  async getCategories(parentSlug?: string) {
+    const where = parentSlug ? { parentSlug } : { level: 0 };
+    return this.prisma.autoloadCategory.findMany({
+      where: { ...where, isActive: true },
+      orderBy: { nameRu: 'asc' },
+      include: { _count: { select: { fields: true, items: true } } },
+    });
+  }
+
+  async getCategoryBySlug(slug: string) {
+    const category = await this.prisma.autoloadCategory.findUnique({
+      where: { slug },
+      include: {
+        fields: { orderBy: { sortOrder: 'asc' } },
+        _count: { select: { items: true } },
+      },
+    });
+    if (!category) throw new NotFoundException(`Category ${slug} not found`);
+    return category;
+  }
+
+  async getCategoryFieldsBySlug(slug: string) {
+    const category = await this.prisma.autoloadCategory.findUnique({
+      where: { slug },
+    });
+    if (!category) throw new NotFoundException(`Category ${slug} not found`);
+
+    return this.prisma.autoloadCategoryField.findMany({
+      where: { categoryId: category.id },
+      orderBy: { sortOrder: 'asc' },
+    });
+  }
+
+    // === Items CRUD (per category tab) ===
+
+  async getItems(projectId: string, categoryId?: string, skip = 0, take = 50) {
+    const where: any = { projectId };
+    if (categoryId) where.categoryId = categoryId;
+
+    const [data, total] = await Promise.all([
+      this.prisma.autoloadItem.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        include: { category: { select: { nameRu: true, slug: true } } },
+        skip,
+        take,
+      }),
+      this.prisma.autoloadItem.count({ where }),
+    ]);
+    return { data, total, skip, take };
+  }
+
+  async getItem(id: string) {
+    const item = await this.prisma.autoloadItem.findUnique({
+      where: { id },
+      include: {
+        category: { include: { fields: { orderBy: { sortOrder: 'asc' } } } },
+      },
+    });
+    if (!item) throw new NotFoundException(`Item ${id} not found`);
+    return item;
+  }
+
+  async createItem(data: {
+    projectId: string;
+    accountId?: string;
+    categoryId: string;
+    externalId: string;
+    title: string;
+    description?: string;
+    price?: number;
+    imageUrls?: string[];
+    address?: string;
+    contactPhone?: string;
+    contactName?: string;
+    condition?: string;
+    adStatus?: string;
+    listingFee?: string;
+    deliveryMode?: string;
+    categoryFields?: Record<string, any>;
+    dateBegin?: Date;
+    dateEnd?: Date;
+  }) {
+    // Validate category exists
+    const category = await this.prisma.autoloadCategory.findUnique({
+      where: { id: data.categoryId },
+    });
+    if (!category) throw new NotFoundException(`Category ${data.categoryId} not found`);
+
+    return this.prisma.autoloadItem.create({
+      data: {
+        projectId: data.projectId,
+        accountId: data.accountId,
+        categoryId: data.categoryId,
+        externalId: data.externalId,
+        title: data.title,
+        description: data.description,
+        price: data.price || 0,
+        imageUrls: data.imageUrls || [],
+        address: data.address,
+        contactPhone: data.contactPhone,
+        contactName: data.contactName,
+        condition: data.condition,
+        adStatus: data.adStatus,
+        listingFee: data.listingFee,
+        deliveryMode: data.deliveryMode,
+        categoryFields: data.categoryFields ?? undefined,
+        dateBegin: data.dateBegin,
+        dateEnd: data.dateEnd,
+        status: 'draft',
+      },
+    });
+  }
+
+    async updateItem(id: string, data: Partial<{
+    title: string;
+    description: string;
+    price: number;
+    imageUrls: string[];
+    address: string;
+    contactPhone: string;
+    contactName: string;
+    condition: string;
+    adStatus: string;
+    listingFee: string;
+    deliveryMode: string;
+    categoryFields: Record<string, any>;
+    status: string;
+    isActive: boolean;
+    dateBegin: Date;
+    dateEnd: Date;
+  }>) {
+    const item = await this.prisma.autoloadItem.findUnique({ where: { id } });
+    if (!item) throw new NotFoundException(`Item ${id} not found`);
+    return this.prisma.autoloadItem.update({ where: { id }, data });
+  }
+
+  async deleteItem(id: string) {
+    const item = await this.prisma.autoloadItem.findUnique({ where: { id } });
+    if (!item) throw new NotFoundException(`Item ${id} not found`);
+    return this.prisma.autoloadItem.delete({ where: { id } });
+  }
+
+  async bulkCreateItems(projectId: string, categoryId: string, items: any[]) {
+    const category = await this.prisma.autoloadCategory.findUnique({
+      where: { id: categoryId },
+    });
+    if (!category) throw new NotFoundException(`Category ${categoryId} not found`);
+
+    const results = { created: 0, errors: [] as any[] };
+
+    for (const item of items) {
+      try {
+        await this.prisma.autoloadItem.upsert({
+          where: { projectId_externalId: { projectId, externalId: item.externalId } },
+          update: {
+            title: item.title,
+            description: item.description,
+            price: item.price || 0,
+            imageUrls: item.imageUrls || [],
+            categoryFields: item.categoryFields ?? undefined,
+            status: item.status || 'draft',
+          },
+          create: {
+            projectId,
+            categoryId,
+            externalId: item.externalId,
+            title: item.title,
+            description: item.description,
+            price: item.price || 0,
+            imageUrls: item.imageUrls || [],
+            address: item.address,
+            condition: item.condition,
+            categoryFields: item.categoryFields ?? undefined,
+            status: 'draft',
+          },
+        });
+        results.created++;
+      } catch (err: any) {
+        results.errors.push({ externalId: item.externalId, error: err.message });
+      }
+    }
+
+    return results;
+  }
+
+    // === Feed Management ===
+
+  async getFeeds(projectId: string) {
+    return this.prisma.autoloadFeed.findMany({
+      where: { projectId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createFeed(data: {
+    projectId: string;
+    accountId: string;
+    name: string;
+    format?: string;
+    categoryIds?: string[];
+  }) {
+    return this.prisma.autoloadFeed.create({
+      data: {
+        projectId: data.projectId,
+        accountId: data.accountId,
+        name: data.name,
+        format: data.format || 'xlsx',
+        categoryIds: data.categoryIds || [],
+      },
+    });
+  }
+
+  async updateFeed(id: string, data: Partial<{
+    name: string;
+    format: string;
+    categoryIds: string[];
+    isActive: boolean;
+  }>) {
+    return this.prisma.autoloadFeed.update({ where: { id }, data });
+  }
+
+  async deleteFeed(id: string) {
+    return this.prisma.autoloadFeed.delete({ where: { id } });
+  }
+
+  /** Get items count grouped by category for a project */
+  async getItemsStats(projectId: string) {
+    const categories = await this.prisma.autoloadCategory.findMany({
+      where: {
+        items: { some: { projectId } },
+      },
+      include: {
+        _count: { select: { items: true } },
+        items: {
+          where: { projectId },
+          select: { status: true },
+        },
+      },
+    });
+
+    return categories.map((cat) => ({
+      categoryId: cat.id,
+      slug: cat.slug,
+      nameRu: cat.nameRu,
+      total: cat._count.items,
+      active: cat.items.filter((i) => i.status === 'active').length,
+      draft: cat.items.filter((i) => i.status === 'draft').length,
+      error: cat.items.filter((i) => i.status === 'error').length,
+    }));
+  }
+
 }
