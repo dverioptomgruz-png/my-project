@@ -1123,3 +1123,41 @@ model AutoloadFeed {
   @@index([accountId])
   @@schema("public")
 }
+
+
+// Spintax template for text randomization
+model AutoloadTemplate {
+  id            String   @id @default(uuid())
+  projectId     String
+  categoryId    String?  // optional: template per category
+  name          String   // template name for UI
+  type          String   // title, description, address
+  spintaxBody   String   @db.Text // spintax template text
+  macros        Json?    // default macro values {CITY: [...], PRICE: [...]}
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([projectId, categoryId])
+  @@index([type])
+  @@schema("public")
+}
+
+// Photo pool for randomization
+model AutoloadPhotoPool {
+  id          String   @id @default(uuid())
+  projectId   String
+  categoryId  String?  // optional: pool per category
+  name        String   // pool name for UI
+  urls        String[] // array of photo URLs
+  minPhotos   Int      @default(3)
+  maxPhotos   Int      @default(10)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([projectId, categoryId])
+  @@schema("public")
+}
