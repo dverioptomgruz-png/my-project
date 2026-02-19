@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Put, Delete, Param, Body, Query, Headers,
+  Controller, Get, Post, Put, Delete, Param, Body, Query, Header, Headers,
   UnauthorizedException,
 } from '@nestjs/common';
 import {
@@ -279,6 +279,14 @@ export class AutoloadController {
   @ApiOperation({ summary: 'Delete a feed' })
   deleteFeed(@Param('id') id: string) {
     return this.svc.deleteFeed(id);
+  }
+
+    // --- XML Feed Generation ---
+  @Get('feeds/:feedId/xml')
+  @ApiOperation({ summary: 'Generate XML feed for Avito autoload' })
+  @Header('Content-Type', 'application/xml; charset=utf-8')
+  async getFeedXml(@Param('feedId') feedId: string) {
+    return this.svc.generateXmlFeed(feedId);
   }
 }
 
