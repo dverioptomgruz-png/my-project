@@ -283,6 +283,100 @@ export class AutoloadController {
 }
 
 // =============================================
+
+  // --- Templates ---
+
+  @Post('templates')
+  @ApiOperation({ summary: 'Create a spintax template' })
+  createTemplate(@Body() body: any) {
+    return this.svc.createTemplate(body);
+  }
+
+  @Get('templates')
+  @ApiOperation({ summary: 'Get templates for a project' })
+  @ApiQuery({ name: 'projectId', required: true, type: String })
+  @ApiQuery({ name: 'categoryId', required: false, type: String })
+  getTemplates(
+    @Query('projectId') projectId: string,
+    @Query('categoryId') categoryId?: string,
+  ) {
+    return this.svc.getTemplates(projectId, categoryId);
+  }
+
+  @Get('templates/:id')
+  @ApiOperation({ summary: 'Get a single template' })
+  getTemplate(@Param('id') id: string) {
+    return this.svc.getTemplate(id);
+  }
+
+  @Put('templates/:id')
+  @ApiOperation({ summary: 'Update a template' })
+  updateTemplate(@Param('id') id: string, @Body() body: any) {
+    return this.svc.updateTemplate(id, body);
+  }
+
+  @Delete('templates/:id')
+  @ApiOperation({ summary: 'Delete a template' })
+  deleteTemplate(@Param('id') id: string) {
+    return this.svc.deleteTemplate(id);
+  }
+
+  // --- Photo Pools ---
+
+  @Post('photo-pools')
+  @ApiOperation({ summary: 'Create a photo pool' })
+  createPhotoPool(@Body() body: any) {
+    return this.svc.createPhotoPool(body);
+  }
+
+  @Get('photo-pools')
+  @ApiOperation({ summary: 'Get photo pools for a project' })
+  @ApiQuery({ name: 'projectId', required: true, type: String })
+  @ApiQuery({ name: 'categoryId', required: false, type: String })
+  getPhotoPools(
+    @Query('projectId') projectId: string,
+    @Query('categoryId') categoryId?: string,
+  ) {
+    return this.svc.getPhotoPools(projectId, categoryId);
+  }
+
+  @Put('photo-pools/:id')
+  @ApiOperation({ summary: 'Update a photo pool' })
+  updatePhotoPool(@Param('id') id: string, @Body() body: any) {
+    return this.svc.updatePhotoPool(id, body);
+  }
+
+  @Delete('photo-pools/:id')
+  @ApiOperation({ summary: 'Delete a photo pool' })
+  deletePhotoPool(@Param('id') id: string) {
+    return this.svc.deletePhotoPool(id);
+  }
+
+  // --- Text Randomization ---
+
+  @Post('randomize/preview')
+  @ApiOperation({ summary: 'Preview randomized text samples without saving' })
+  previewRandomization(@Body() body: any) {
+    return this.svc.previewRandomization(body);
+  }
+
+  @Post('randomize/apply')
+  @ApiOperation({ summary: 'Generate N unique items from templates and save' })
+  applyRandomization(@Body() body: any) {
+    return this.svc.applyRandomization(body);
+  }
+
+  @Post('randomize/validate')
+  @ApiOperation({ summary: 'Validate a spintax template' })
+  validateTemplate(@Body() body: { template: string }) {
+    return this.svc.validateTemplate(body.template);
+  }
+
+  @Post('randomize/spin')
+  @ApiOperation({ summary: 'Quick spin - resolve spintax once' })
+  spinText(@Body() body: { template: string; macros?: Record<string, any> }) {
+    return { result: this.svc.spinText(body.template, body.macros) };
+  }
 // INTERNAL CONTROLLER (n8n service-to-service)
 // =============================================
 
