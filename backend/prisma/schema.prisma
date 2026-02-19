@@ -1014,3 +1014,112 @@ model BidderExecutionLog {
 
   @@schema("public")
 }
+
+// ===== Autoload Multi-Category Architecture =====
+// Cached Avito category tree (synced from API)
+model AutoloadCategory {
+  id            String   @id @default(uuid())
+  avitoId       Int      @unique // Avito category numeric ID (e.g. 67097)
+  slug          String   @unique // e.g. "laptops", "phones"
+  parentSlug    String?  // parent category slug
+  nameRu        String   // "Ноутбуки"
+  nameEn        String?  // "Laptops"
+  path          String   // full path: "Электроника > Ноутбуки"
+  level         Int      @default(0) // 0=root, 1=category, 2=subcategory
+  templateUrl   String?  // URL to download XLSX template
+  isActive      Boolean  @default(true)
+  fieldsCount   Int      @default(0)
+  lastSyncAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  fields        AutoloadCategoryField[]
+  items         AutoloadItem[]
+
+  @@schema("public")
+}
+
+// Fields definition per category (unique columns per subcategory)
+model AutoloadCategoryField {
+  id            String   @id @default(uuid())
+  categoryId    String
+  name          String   // Russian name: "Производитель"
+  nameEn        String?  // English name: "Vendor"
+  slug          String   // API field key: "vendor"
+  fieldType     String   // text, select, number, boolean, multiselect
+  isRequired    Boolean  @default(false)
+  description   String?  // Avito description of the field
+  defaultValue  String?
+  options       Json?    // [{value: "Lenovo", label: "Леново"}] for selects
+  validationRule String? // regex or min/max
+  sortOrder     Int      @default(0)
+  group         String?  // grouping: "Общие", "Описание товаров", "О ноутбуке"
+  catalogUrl    String?  // URL to values catalog XML
+  createdAt     DateTime @default(now())
+
+  category      AutoloadCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, slug])
+  @@schema("public")
+}
+
+// Autoload items - one row per ad, linked to category
+model AutoloadItem {
+  id            String   @id @default(uuid())
+  projectId     String
+  accountId     String?  // AvitoAccount ID
+  categoryId    String   // links to AutoloadCategory
+  externalId    String   // unique ID in autoload file (Id column)
+  avitoId       String?  // Avito item number
+  title         String   // ad title
+  description   String?  // ad description
+  price         Int      @default(0)
+  imageUrls     String[] @default([]) // photo URLs
+  address       String?
+  contactPhone  String?
+  contactName   String?
+  adStatus      String?  // Free, Highlight, XL, x2_1 etc
+  listingFee    String?  // Package, PackageSingle, Single
+  condition     String?  // Новое, Б/у
+  deliveryMode  String?  // delivery method
+  categoryFields Json?   // dynamic fields specific to this category
+  status        String   @default("draft") // draft, active, paused, error, archived
+  lastError     String?
+  avitoUrl      String?
+  dateBegin     DateTime?
+  dateEnd       DateTime?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  category      AutoloadCategory @relation(fields: [categoryId], references: [id])
+
+  @@unique([projectId, externalId])
+  @@index([projectId, categoryId])
+  @@index([accountId])
+  @@index([status])
+  @@schema("public")
+}
+
+// Autoload feed - generated file per account
+model AutoloadFeed {
+  id            String   @id @default(uuid())
+  projectId     String
+  accountId     String   // AvitoAccount ID
+  name          String   // feed name
+  format        String   @default("xlsx") // xlsx, csv, xml
+  fileUrl       String?  // URL to generated file
+  itemCount     Int      @default(0)
+  categoryIds   String[] @default([]) // which categories included
+  lastGeneratedAt DateTime?
+  lastUploadedAt  DateTime?
+  uploadStatus  String?  // pending, uploading, success, error
+  uploadError   String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([accountId])
+  @@schema("public")
+}
