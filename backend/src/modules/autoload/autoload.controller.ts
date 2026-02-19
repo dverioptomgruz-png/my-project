@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Param, Body, Query, Headers,
+  Controller, Get, Post, Put, Delete, Param, Body, Query, Headers,
   UnauthorizedException,
 } from '@nestjs/common';
 import {
@@ -161,6 +161,124 @@ export class AutoloadController {
   @ApiOperation({ summary: 'Get fields for a category' })
   getCategoryFields(@Param('slug') slug: string) {
     return this.svc.getCategoryFields(slug);
+  }
+
+    // =============================================
+  // MULTI-CATEGORY ENDPOINTS (reyting.pro pattern)
+  // =============================================
+
+  // --- Category Sync & Browse ---
+
+  @Post('categories/sync')
+  @ApiOperation({ summary: 'Sync category tree from Avito API' })
+  syncCategoryTree() {
+    return this.svc.syncCategoryTree();
+  }
+
+  @Post('categories/:slug/sync-fields')
+  @ApiOperation({ summary: 'Sync fields for specific category from Avito' })
+  syncCategoryFields(@Param('slug') slug: string) {
+    return this.svc.syncCategoryFields(slug);
+  }
+
+  @Get('categories')
+  @ApiOperation({ summary: 'Get categories list (root or children)' })
+  @ApiQuery({ name: 'parentSlug', required: false, type: String })
+  getCategories(@Query('parentSlug') parentSlug?: string) {
+    return this.svc.getCategories(parentSlug);
+  }
+
+  @Get('categories/:slug')
+  @ApiOperation({ summary: 'Get category with fields by slug' })
+  getCategoryBySlug(@Param('slug') slug: string) {
+    return this.svc.getCategoryBySlug(slug);
+  }
+
+  @Get('categories/:slug/fields-local')
+  @ApiOperation({ summary: 'Get cached fields for category' })
+  getCategoryFieldsLocal(@Param('slug') slug: string) {
+    return this.svc.getCategoryFieldsBySlug(slug);
+  }
+
+    // --- Items CRUD (per category tab) ---
+
+  @Get('items')
+  @ApiOperation({ summary: 'List items, optionally filtered by category' })
+  @ApiQuery({ name: 'projectId', required: true, type: String })
+  @ApiQuery({ name: 'categoryId', required: false, type: String })
+  @ApiQuery({ name: 'skip', required: false, type: Number })
+  @ApiQuery({ name: 'take', required: false, type: Number })
+  getItems(
+    @Query('projectId') projectId: string,
+    @Query('categoryId') categoryId?: string,
+    @Query('skip') skip?: string,
+    @Query('take') take?: string,
+  ) {
+    return this.svc.getItems(projectId, categoryId, parseInt(skip || '0', 10), parseInt(take || '50', 10));
+  }
+
+  @Get('items/stats')
+  @ApiOperation({ summary: 'Get items stats grouped by category' })
+  @ApiQuery({ name: 'projectId', required: true, type: String })
+  getItemsStats(@Query('projectId') projectId: string) {
+    return this.svc.getItemsStats(projectId);
+  }
+
+  @Get('items/:id')
+  @ApiOperation({ summary: 'Get single item with category fields schema' })
+  getItem(@Param('id') id: string) {
+    return this.svc.getItem(id);
+  }
+
+  @Post('items')
+  @ApiOperation({ summary: 'Create a new autoload item' })
+  createItem(@Body() body: any) {
+    return this.svc.createItem(body);
+  }
+
+  @Put('items/:id')
+  @ApiOperation({ summary: 'Update an autoload item' })
+  updateItem(@Param('id') id: string, @Body() body: any) {
+    return this.svc.updateItem(id, body);
+  }
+
+  @Delete('items/:id')
+  @ApiOperation({ summary: 'Delete an autoload item' })
+  deleteItem(@Param('id') id: string) {
+    return this.svc.deleteItem(id);
+  }
+
+  @Post('items/bulk')
+  @ApiOperation({ summary: 'Bulk create/update items for a category' })
+  bulkCreateItems(@Body() body: { projectId: string; categoryId: string; items: any[] }) {
+    return this.svc.bulkCreateItems(body.projectId, body.categoryId, body.items);
+  }
+
+    // --- Feed Management ---
+
+  @Get('feeds')
+  @ApiOperation({ summary: 'List feeds for a project' })
+  @ApiQuery({ name: 'projectId', required: true, type: String })
+  getFeeds(@Query('projectId') projectId: string) {
+    return this.svc.getFeeds(projectId);
+  }
+
+  @Post('feeds')
+  @ApiOperation({ summary: 'Create a new autoload feed' })
+  createFeed(@Body() body: any) {
+    return this.svc.createFeed(body);
+  }
+
+  @Put('feeds/:id')
+  @ApiOperation({ summary: 'Update a feed' })
+  updateFeed(@Param('id') id: string, @Body() body: any) {
+    return this.svc.updateFeed(id, body);
+  }
+
+  @Delete('feeds/:id')
+  @ApiOperation({ summary: 'Delete a feed' })
+  deleteFeed(@Param('id') id: string) {
+    return this.svc.deleteFeed(id);
   }
 }
 
