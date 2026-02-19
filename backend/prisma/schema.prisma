@@ -1088,6 +1088,12 @@ model AutoloadItem {
   avitoUrl      String?
   dateBegin     DateTime?
   dateEnd       DateTime?
+  // === Scheduling & Bidding (Promo) ===
+  promo              String?  // Manual | Auto_1 | Auto_7 | Auto_30 | null
+  promoAutoOptions   String?  // "Москва|20000\nСПб|15000" or "|20000"
+  promoManualOptions String?  // "Москва|2000|20000\nНовосибирск|1000|10000"
+  promoBid           Int?     // Комиссия (для посуточной аренды)
+  promoPeriod        Int?     // Период комиссии в днях
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
