@@ -1,9 +1,20 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
+import { ConfigModule } from '@nestjs/config';
 import { AutoloadService } from './autoload.service';
-import { AutoloadController } from './autoload.controller';
+import {
+  AutoloadController,
+  AutoloadInternalController,
+  AutoloadWebhookController,
+} from './autoload.controller';
 
 @Module({
-  controllers: [AutoloadController],
+  imports: [ScheduleModule.forRoot(), ConfigModule],
+  controllers: [
+    AutoloadController,
+    AutoloadInternalController,
+    AutoloadWebhookController,
+  ],
   providers: [AutoloadService],
   exports: [AutoloadService],
 })
