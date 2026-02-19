@@ -642,6 +642,12 @@ export class AutoloadService {
     categoryFields?: Record<string, any>;
     dateBegin?: Date;
     dateEnd?: Date;
+        // Promo & bidding
+    promo?: string;
+    promoAutoOptions?: string;
+    promoManualOptions?: string;
+    promoBid?: number;
+    promoPeriod?: number;
   }) {
     // Validate category exists
     const category = await this.prisma.autoloadCategory.findUnique({
@@ -669,6 +675,12 @@ export class AutoloadService {
         categoryFields: data.categoryFields ?? undefined,
         dateBegin: data.dateBegin,
         dateEnd: data.dateEnd,
+                // Promo & bidding
+        promo: data.promo,
+        promoAutoOptions: data.promoAutoOptions,
+        promoManualOptions: data.promoManualOptions,
+        promoBid: data.promoBid,
+        promoPeriod: data.promoPeriod,
         status: 'draft',
       },
     });
@@ -691,6 +703,12 @@ export class AutoloadService {
     isActive: boolean;
     dateBegin: Date;
     dateEnd: Date;
+          // Promo & bidding
+    promo: string;
+    promoAutoOptions: string;
+    promoManualOptions: string;
+    promoBid: number;
+    promoPeriod: number;
   }>) {
     const item = await this.prisma.autoloadItem.findUnique({ where: { id } });
     if (!item) throw new NotFoundException(`Item ${id} not found`);
@@ -784,6 +802,102 @@ export class AutoloadService {
 
   async deleteFeed(id: string) {
     return this.prisma.autoloadFeed.delete({ where: { id } });
+  }
+
+    // =============================================
+  // XML FEED GENERATION (Scheduling & Bidding)
+  // =============================================
+
+  private escXml(s?: string | null): string {
+    if (!s) return '';
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  private formatDate(d: Date): string {
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  /** Generate Avito XML feed for a given feedId */
+  async generateXmlFeed(feedId: string): Promise<string> {
+    const feed = await this.prisma.autoloadFeed.findUnique({ where: { id: feedId } });
+    if (!feed) throw new NotFoundException(`Feed ${feedId} not found`);
+
+    const where: any = { projectId: feed.projectId, isActive: true, status: 'active' };
+    if (feed.categoryIds?.length) where.categoryId = { in: feed.categoryIds };
+    if (feed.accountId) where.accountId = feed.accountId;
+
+    const items = await this.prisma.autoloadItem.findMany({
+      where,
+      include: { category: true },
+    });
+
+    const ads = items.map((item) => {
+      let xml = `  <Ad>\n`;
+      xml += `    <Id>${this.escXml(item.externalId)}</Id>\n`;
+      if (item.avitoId) xml += `    <AvitoId>${this.escXml(item.avitoId)}</AvitoId>\n`;
+
+      // Category
+      xml += `    <Category>${this.escXml(item.category?.nameRu)}</Category>\n`;
+
+      // Core fields
+      xml += `    <Title>${this.escXml(item.title)}</Title>\n`;
+      if (item.description) xml += `    <Description>${this.escXml(item.description)}</Description>\n`;
+      xml += `    <Price>${item.price}</Price>\n`;
+
+      // Images
+      if (item.imageUrls?.length) {
+        xml += `    <Images>\n`;
+        for (const url of item.imageUrls) {
+          xml += `      <Image url="${this.escXml(url)}" />\n`;
+        }
+        xml += `    </Images>\n`;
+      }
+
+      // Contact & address
+      if (item.address) xml += `    <Address>${this.escXml(item.address)}</Address>\n`;
+      if (item.contactPhone) xml += `    <ContactPhone>${this.escXml(item.contactPhone)}</ContactPhone>\n`;
+      if (item.contactName) xml += `    <ContactMethod>${this.escXml(item.contactName)}</ContactMethod>\n`;
+      if (item.condition) xml += `    <Condition>${this.escXml(item.condition)}</Condition>\n`;
+
+      // Scheduling
+      if (item.dateBegin) xml += `    <DateBegin>${this.formatDate(new Date(item.dateBegin))}</DateBegin>\n`;
+      if (item.dateEnd) xml += `    <DateEnd>${this.formatDate(new Date(item.dateEnd))}</DateEnd>\n`;
+
+      // Listing fee & AdStatus
+      if (item.listingFee) xml += `    <ListingFee>${this.escXml(item.listingFee)}</ListingFee>\n`;
+      if (item.adStatus) xml += `    <AdStatus>${this.escXml(item.adStatus)}</AdStatus>\n`;
+
+      // Promotion (Promo)
+      if (item.promo) {
+        xml += `    <Promo>${this.escXml(item.promo)}</Promo>\n`;
+        if (item.promoAutoOptions) xml += `    <PromoAutoOptions>${this.escXml(item.promoAutoOptions)}</PromoAutoOptions>\n`;
+        if (item.promoManualOptions) xml += `    <PromoManualOptions>${this.escXml(item.promoManualOptions)}</PromoManualOptions>\n`;
+        if (item.promoBid) xml += `    <PromoBid>${item.promoBid}</PromoBid>\n`;
+        if (item.promoPeriod) xml += `    <PromoPeriod>${item.promoPeriod}</PromoPeriod>\n`;
+      }
+
+      // Dynamic category fields
+      if (item.categoryFields && typeof item.categoryFields === 'object') {
+        for (const [key, val] of Object.entries(item.categoryFields as Record<string, any>)) {
+          if (val != null && val !== '') xml += `    <${key}>${this.escXml(String(val))}</${key}>\n`;
+        }
+      }
+
+      xml += `  </Ad>`;
+      return xml;
+    });
+
+    const xmlDoc = `<?xml version="1.0" encoding="utf-8"?>\n<Ads formatVersion="3" target="Avito.ru">\n${ads.join('\n')}\n</Ads>`;
+
+    // Update feed metadata
+    await this.prisma.autoloadFeed.update({
+      where: { id: feedId },
+      data: { itemCount: items.length, lastGeneratedAt: new Date(), format: 'xml' },
+    });
+
+    this.logger.log(`Generated XML feed ${feedId}: ${items.length} items`);
+    return xmlDoc;
   }
 
   /** Get items count grouped by category for a project */
