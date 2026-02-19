@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import axios from 'axios';
+import { TextRandomizer, spinOne, replaceMacros, randomizePhotos, countVariants } from './text-randomizer';
 
 const AVITO_API = 'https://api.avito.ru';
 
@@ -809,6 +810,252 @@ export class AutoloadService {
       draft: cat.items.filter((i) => i.status === 'draft').length,
       error: cat.items.filter((i) => i.status === 'error').length,
     }));
+  }
+
+    // =============================================
+  // TEMPLATE MANAGEMENT
+  // =============================================
+
+  /** Create a new spintax template */
+  async createTemplate(data: {
+    projectId: string;
+    categoryId?: string;
+    name: string;
+    type: string;
+    spintaxBody: string;
+    macros?: any;
+  }) {
+    // Validate spintax
+    const validation = TextRandomizer.validate(data.spintaxBody);
+    if (!validation.valid) {
+      throw new BadRequestException(
+        `Invalid spintax: ${validation.errors.join(', ')}`,
+      );
+    }
+
+    return this.prisma.autoloadTemplate.create({ data });
+  }
+
+  /** Update an existing template */
+  async updateTemplate(id: string, data: {
+    name?: string;
+    type?: string;
+    spintaxBody?: string;
+    macros?: any;
+    isActive?: boolean;
+  }) {
+    if (data.spintaxBody) {
+      const validation = TextRandomizer.validate(data.spintaxBody);
+      if (!validation.valid) {
+        throw new BadRequestException(
+          `Invalid spintax: ${validation.errors.join(', ')}`,
+        );
+      }
+    }
+    return this.prisma.autoloadTemplate.update({
+      where: { id },
+      data,
+    });
+  }
+
+  /** Get all templates for a project */
+  async getTemplates(projectId: string, categoryId?: string) {
+    return this.prisma.autoloadTemplate.findMany({
+      where: {
+        projectId,
+        ...(categoryId ? { categoryId } : {}),
+        isActive: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /** Get a single template by ID */
+  async getTemplate(id: string) {
+    const tmpl = await this.prisma.autoloadTemplate.findUnique({ where: { id } });
+    if (!tmpl) throw new NotFoundException('Template not found');
+    return tmpl;
+  }
+
+  /** Delete a template */
+  async deleteTemplate(id: string) {
+    return this.prisma.autoloadTemplate.delete({ where: { id } });
+  }
+
+    // =============================================
+  // PHOTO POOL MANAGEMENT
+  // =============================================
+
+  /** Create a photo pool */
+  async createPhotoPool(data: {
+    projectId: string;
+    categoryId?: string;
+    name: string;
+    urls: string[];
+    minPhotos?: number;
+    maxPhotos?: number;
+  }) {
+    return this.prisma.autoloadPhotoPool.create({ data });
+  }
+
+  /** Update a photo pool */
+  async updatePhotoPool(id: string, data: {
+    name?: string;
+    urls?: string[];
+    minPhotos?: number;
+    maxPhotos?: number;
+    isActive?: boolean;
+  }) {
+    return this.prisma.autoloadPhotoPool.update({
+      where: { id },
+      data,
+    });
+  }
+
+  /** Get all photo pools for a project */
+  async getPhotoPools(projectId: string, categoryId?: string) {
+    return this.prisma.autoloadPhotoPool.findMany({
+      where: {
+        projectId,
+        ...(categoryId ? { categoryId } : {}),
+        isActive: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /** Delete a photo pool */
+  async deletePhotoPool(id: string) {
+    return this.prisma.autoloadPhotoPool.delete({ where: { id } });
+  }
+
+    // =============================================
+  // TEXT RANDOMIZATION
+  // =============================================
+
+  /** Preview randomized text without saving */
+  async previewRandomization(data: {
+    projectId: string;
+    categoryId?: string;
+    titleTemplateId?: string;
+    descriptionTemplateId?: string;
+    photoPoolId?: string;
+    macros?: Record<string, string | string[]>;
+    sampleCount?: number;
+  }) {
+    const titleTemplate = data.titleTemplateId
+      ? await this.getTemplate(data.titleTemplateId)
+      : null;
+    const descTemplate = data.descriptionTemplateId
+      ? await this.getTemplate(data.descriptionTemplateId)
+      : null;
+    const photoPool = data.photoPoolId
+      ? await this.prisma.autoloadPhotoPool.findUnique({
+          where: { id: data.photoPoolId },
+        })
+      : null;
+
+    const options = {
+      titleTemplate: titleTemplate?.spintaxBody,
+      descriptionTemplate: descTemplate?.spintaxBody,
+      macros: {
+        ...(titleTemplate?.macros as Record<string, any> || {}),
+        ...(descTemplate?.macros as Record<string, any> || {}),
+        ...(data.macros || {}),
+      },
+      photoPool: photoPool
+        ? { urls: photoPool.urls, minPhotos: photoPool.minPhotos, maxPhotos: photoPool.maxPhotos }
+        : undefined,
+    };
+
+    return TextRandomizer.preview(options, data.sampleCount || 3);
+  }
+
+    /**
+   * Apply randomization: generate N items from templates and save to DB.
+   * This is the main method for mass-generating unique listings.
+   */
+  async applyRandomization(data: {
+    projectId: string;
+    categoryId: string;
+    accountId: string;
+    titleTemplateId?: string;
+    descriptionTemplateId?: string;
+    photoPoolId?: string;
+    macros?: Record<string, string | string[]>;
+    count: number;
+    baseFields?: Record<string, any>;
+  }) {
+    const titleTemplate = data.titleTemplateId
+      ? await this.getTemplate(data.titleTemplateId)
+      : null;
+    const descTemplate = data.descriptionTemplateId
+      ? await this.getTemplate(data.descriptionTemplateId)
+      : null;
+    const photoPool = data.photoPoolId
+      ? await this.prisma.autoloadPhotoPool.findUnique({
+          where: { id: data.photoPoolId },
+        })
+      : null;
+
+    const options = {
+      titleTemplate: titleTemplate?.spintaxBody,
+      descriptionTemplate: descTemplate?.spintaxBody,
+      macros: {
+        ...(titleTemplate?.macros as Record<string, any> || {}),
+        ...(descTemplate?.macros as Record<string, any> || {}),
+        ...(data.macros || {}),
+      },
+      photoPool: photoPool
+        ? { urls: photoPool.urls, minPhotos: photoPool.minPhotos, maxPhotos: photoPool.maxPhotos }
+        : undefined,
+      count: data.count,
+    };
+
+    const generated = TextRandomizer.generateMany(options, data.count);
+
+    // Save generated items to DB
+    const items = [];
+    for (const item of generated) {
+      const created = await this.prisma.autoloadItem.create({
+        data: {
+          projectId: data.projectId,
+          categoryId: data.categoryId,
+          accountId: data.accountId,
+          externalId: `gen-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+          title: item.title,
+          description: item.description,
+          images: item.photos,
+          fields: data.baseFields || {},
+          status: 'draft',
+        },
+      });
+      items.push(created);
+    }
+
+    this.logger.log(
+      `Generated ${items.length} randomized items for project ${data.projectId}`,
+    );
+
+    return {
+      generated: items.length,
+      totalPossibleVariants: countVariants(
+        (titleTemplate?.spintaxBody || '') + (descTemplate?.spintaxBody || ''),
+      ),
+      items,
+    };
+  }
+
+    /** Validate a spintax template string */
+  validateTemplate(template: string) {
+    return TextRandomizer.validate(template);
+  }
+
+  /** Quick spin - resolve spintax once without saving */
+  spinText(template: string, macros?: Record<string, string | string[]>) {
+    let text = template;
+    if (macros) text = replaceMacros(text, macros);
+    return spinOne(text);
   }
 
 }
