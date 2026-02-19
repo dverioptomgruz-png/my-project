@@ -936,14 +936,70 @@ model ChatMessage {
 }
 
 model AutoloadReport {
-  id        String   @id @default(uuid())
-  projectId String
-  total     Int
-  ok        Int
-  failed    Int
-  rawJson   Json?
-  createdAt DateTime @default(now())
-  project   Project  @relation(fields: [projectId], references: [id])
+  id            String   @id @default(uuid())
+  projectId     String
+  accountId     String?
+  total         Int
+  ok            Int
+  failed        Int
+  status        String   @default("completed") // processing, completed, failed
+  source        String?  // n8n, api, manual
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  errorDetails  Json?
+  rawJson       Json?
+  createdAt     DateTime @default(now())
+
+  project       Project  @relation(fields: [projectId], references: [id])
+  items         AutoloadReportItem[]
+
+  @@schema("public")
+}
+
+model AutoloadReportItem {
+  id            String   @id @default(uuid())
+  reportId      String
+  adId          String?  // ID from autoload file
+  avitoId       String?  // ID on Avito
+  title         String?
+  status        String   @default("pending") // pending, ok, error
+  errors        Json?
+  avitoUrl      String?
+  feedName      String?
+  createdAt     DateTime @default(now())
+
+  report        AutoloadReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@schema("public")
+}
+
+model AutoloadProfile {
+  id              String   @id @default(uuid())
+  accountId       String   @unique
+  enabled         Boolean  @default(false)
+  feedUrl         String?
+  reportEmail     String?
+  schedule        Json?    // [{time_from, time_to, limit}]
+  lastSyncAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@schema("public")
+}
+
+model AutoloadRun {
+  id            String   @id @default(uuid())
+  userId        String?
+  accountId     String?
+  totalItems    Int      @default(0)
+  successCount  Int      @default(0)
+  failedCount   Int      @default(0)
+  errorDetails  Json?
+  source        String   @default("n8n") // n8n, manual, api
+  status        String   @default("completed") // running, completed, failed
+  startedAt     DateTime @default(now())
+  finishedAt    DateTime?
+  createdAt     DateTime @default(now())
 
   @@schema("public")
 }
