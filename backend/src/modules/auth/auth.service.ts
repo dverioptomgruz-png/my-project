@@ -33,7 +33,7 @@ export class AuthService {
         name: dto.name,
       },
     });
-    return this.generateTokens(user.id, user.email, user.role);
+    return this.generateTokens(user.id, user.email, user.role, user.name);
   }
 
   async login(dto: LoginDto) {
@@ -63,7 +63,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    return this.generateTokens(user.id, user.email, user.role);
+    return this.generateTokens(user.id, user.email, user.role, user.name);
   }
 
   async refreshTokens(refreshToken: string) {
@@ -75,7 +75,7 @@ export class AuthService {
         where: { id: payload.sub },
       });
       if (!user) throw new UnauthorizedException('User not found');
-      return this.generateTokens(user.id, user.email, user.role);
+      return this.generateTokens(user.id, user.email, user.role, user.name);
     } catch {
       throw new UnauthorizedException('Invalid refresh token');
     }
@@ -96,7 +96,7 @@ export class AuthService {
     return user;
   }
 
-  private generateTokens(userId: string, email: string, role: string) {
+  private generateTokens(userId: string, email: string, role: string, name?: string | null) {
     const payload = { sub: userId, email, role };
     const accessToken = this.jwt.sign(payload, {
       secret: this.config.get('JWT_SECRET', 'dev-secret-change-me'),
@@ -109,7 +109,12 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
-      user: { id: userId, email, role },
+      user: {
+        id: userId,
+        email,
+        role,
+        name: name ?? null,
+      },
     };
   }
 }
