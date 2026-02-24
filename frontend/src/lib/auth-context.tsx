@@ -78,7 +78,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const data = await res.json();
         setState({ user: data, isLoading: false, error: null });
       } else if (res.status === 401) {
-        // Try to refresh token on 401
         const newToken = await tryRefreshToken();
         if (!newToken) {
           setState({ user: null, isLoading: false, error: null });
@@ -107,11 +106,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
+    const normalizedEmail = email.trim().toLowerCase();
     try {
       const res = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: normalizedEmail, password }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -122,7 +122,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await res.json();
       localStorage.setItem('accessToken', data.accessToken);
       localStorage.setItem('refreshToken', data.refreshToken);
-      // Fetch full profile to get name and all fields
       await fetchProfile();
     } catch (e) {
       if (e instanceof Error) {
@@ -135,11 +134,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const register = useCallback(async (email: string, password: string, name?: string) => {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
+    const normalizedEmail = email.trim().toLowerCase();
     try {
       const res = await fetch(`${API_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, name }),
+        body: JSON.stringify({ email: normalizedEmail, password, name }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -150,7 +150,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await res.json();
       localStorage.setItem('accessToken', data.accessToken);
       localStorage.setItem('refreshToken', data.refreshToken);
-      // Fetch full profile to get name and all fields
       await fetchProfile();
     } catch (e) {
       if (e instanceof Error) {
