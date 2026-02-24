@@ -18,9 +18,9 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
-    const email = dto.email.toLowerCase().trim();
-    const existing = await this.prisma.user.findUnique({
-      where: { email },
+    const email = this.normalizeEmail(dto.email);
+    const existing = await this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
     });
     if (existing) {
       throw new ConflictException('Email already registered');
@@ -37,30 +37,57 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const email = dto.email.toLowerCase().trim();
-
-    // Try normalized email first
-    let user = await this.prisma.user.findUnique({
-      where: { email },
+    const normalizedEmail = this.normalizeEmail(dto.email);
+    const localUser = await this.prisma.user.findFirst({
+      where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
     });
 
-    // Legacy fallback: try original case if not found
-    if (!user && email !== dto.email.trim()) {
-      user = await this.prisma.user.findUnique({
-        where: { email: dto.email.trim() },
-      });
+    if (localUser?.passwordHash) {
+      const passwordValid = await this.verifyPassword(dto.password, localUser.passwordHash);
+      if (passwordValid) {
+        return this.generateTokens(localUser.id, localUser.email, localUser.role, localUser.name);
+      }
     }
 
-    if (!user) {
+    const legacyUser = await this.findLegacyUser(normalizedEmail);
+    if (!legacyUser?.encrypted_password) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const passwordValid = await bcrypt.compare(
+    const legacyPasswordValid = await this.verifyPassword(
       dto.password,
-      user.passwordHash || '',
+      legacyUser.encrypted_password,
     );
-    if (!passwordValid) {
+    if (!legacyPasswordValid) {
       throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const email = (legacyUser.email || normalizedEmail).toLowerCase();
+    const rawMeta = legacyUser.raw_user_meta_data as Record<string, unknown> | null;
+    const fallbackName = email.includes('@') ? email.split('@')[0] : 'User';
+    const name =
+      typeof rawMeta?.name === 'string'
+        ? rawMeta.name
+        : typeof rawMeta?.full_name === 'string'
+          ? rawMeta.full_name
+          : localUser?.name || fallbackName;
+
+    const user =
+      localUser ||
+      (await this.prisma.user.create({
+        data: {
+          email,
+          name,
+          passwordHash: legacyUser.encrypted_password,
+          role: 'MANAGER',
+        },
+      }));
+
+    if (!user.passwordHash || user.passwordHash !== legacyUser.encrypted_password) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash: legacyUser.encrypted_password },
+      });
     }
 
     return this.generateTokens(user.id, user.email, user.role, user.name);
@@ -94,6 +121,33 @@ export class AuthService {
     });
     if (!user) throw new UnauthorizedException('User not found');
     return user;
+  }
+
+  private normalizeEmail(email: string): string {
+    return email.trim().toLowerCase();
+  }
+
+  private async verifyPassword(password: string, hash: string): Promise<boolean> {
+    try {
+      return await bcrypt.compare(password, hash);
+    } catch {
+      return false;
+    }
+  }
+
+  private async findLegacyUser(email: string) {
+    try {
+      return await this.prisma.users.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' } },
+        select: {
+          email: true,
+          encrypted_password: true,
+          raw_user_meta_data: true,
+        },
+      });
+    } catch {
+      return null;
+    }
   }
 
   private generateTokens(userId: string, email: string, role: string, name?: string | null) {
