@@ -18,35 +18,47 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
+    const email = dto.email.toLowerCase().trim();
     const existing = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+      where: { email },
     });
     if (existing) {
       throw new ConflictException('Email already registered');
     }
-
     const passwordHash = await bcrypt.hash(dto.password, 12);
-
     const user = await this.prisma.user.create({
       data: {
-        email: dto.email,
+        email,
         passwordHash,
         name: dto.name,
       },
     });
-
     return this.generateTokens(user.id, user.email, user.role);
   }
 
   async login(dto: LoginDto) {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+    const email = dto.email.toLowerCase().trim();
+
+    // Try normalized email first
+    let user = await this.prisma.user.findUnique({
+      where: { email },
     });
+
+    // Legacy fallback: try original case if not found
+    if (!user && email !== dto.email.trim()) {
+      user = await this.prisma.user.findUnique({
+        where: { email: dto.email.trim() },
+      });
+    }
+
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const passwordValid = await bcrypt.compare(dto.password, user.passwordHash || "");
+    const passwordValid = await bcrypt.compare(
+      dto.password,
+      user.passwordHash || '',
+    );
     if (!passwordValid) {
       throw new UnauthorizedException('Invalid credentials');
     }
@@ -59,12 +71,10 @@ export class AuthService {
       const payload = this.jwt.verify(refreshToken, {
         secret: this.config.get('JWT_REFRESH_SECRET', 'dev-refresh-secret'),
       });
-
       const user = await this.prisma.user.findUnique({
         where: { id: payload.sub },
       });
       if (!user) throw new UnauthorizedException('User not found');
-
       return this.generateTokens(user.id, user.email, user.role);
     } catch {
       throw new UnauthorizedException('Invalid refresh token');
@@ -88,17 +98,14 @@ export class AuthService {
 
   private generateTokens(userId: string, email: string, role: string) {
     const payload = { sub: userId, email, role };
-
     const accessToken = this.jwt.sign(payload, {
       secret: this.config.get('JWT_SECRET', 'dev-secret-change-me'),
       expiresIn: this.config.get('JWT_EXPIRATION', '15m'),
     });
-
     const refreshToken = this.jwt.sign(payload, {
       secret: this.config.get('JWT_REFRESH_SECRET', 'dev-refresh-secret'),
       expiresIn: this.config.get('JWT_REFRESH_EXPIRATION', '7d'),
     });
-
     return {
       accessToken,
       refreshToken,
