@@ -57,7 +57,10 @@ class ApiClient {
 
       if (!response.ok) return false;
 
-      const data = await response.json();
+      const contentType = (response.headers.get("content-type") || "").toLowerCase();
+      const data = contentType.includes("application/json")
+        ? await response.json()
+        : await response.text();
       this.setTokens(data.accessToken, data.refreshToken);
       return true;
     } catch {

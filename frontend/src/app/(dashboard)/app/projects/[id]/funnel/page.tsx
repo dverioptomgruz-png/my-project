@@ -82,10 +82,10 @@ export default function FunnelPage() {
   const fetchFunnel = async () => {
     setLoading(true);
     try {
-      const data = await api.get<FunnelData>(
+      const response = await api.get<FunnelData>(
         `/funnel/data?projectId=${projectId}&from=${dateFrom}&to=${dateTo}`,
       );
-      setFunnelData(data);
+      setFunnelData(response.data || null);
     } catch {
       toast.error('Ошибка загрузки воронки');
     } finally {
@@ -100,12 +100,12 @@ export default function FunnelPage() {
   const handleCalculate = async () => {
     setCalculating(true);
     try {
-      const result = await api.post<CalcResult>('/funnel/calculate', {
+      const response = await api.post<CalcResult>('/funnel/calculate', {
         revenue: parseFloat(revenue) || 0,
         spend: parseFloat(spend) || 0,
         leads: parseInt(leads) || 0,
       });
-      setCalcResult(result);
+      setCalcResult(response.data || null);
     } catch {
       toast.error('Ошибка расчёта');
     } finally {

@@ -72,10 +72,11 @@ export default function AnalyticsPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const result = await api.get<AnalyticsData[]>(
+      const response = await api.get<AnalyticsData[]>(
         `/analytics/daily?projectId=${projectId}&from=${dateFrom}&to=${dateTo}`,
       );
-      setData(Array.isArray(result) ? result : []);
+      const rows = Array.isArray(response.data) ? response.data : [];
+      setData(rows);
     } catch {
       toast.error('Ошибка загрузки аналитики');
     } finally {
@@ -89,10 +90,11 @@ export default function AnalyticsPage() {
 
   const handleExport = async () => {
     try {
-      const csv = await api.get<string>(
+      const response = await api.get<string>(
         `/analytics/export?projectId=${projectId}&from=${dateFrom}&to=${dateTo}`,
       );
-      const blob = new Blob([csv as any], { type: 'text/csv' });
+      const csv = typeof response.data === 'string' ? response.data : '';
+      const blob = new Blob([csv], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

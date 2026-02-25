@@ -5,9 +5,34 @@ import { PrismaService } from '../../prisma/prisma.service';
 export class AnalyticsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private resolveRange(from?: string, to?: string): { fromDate: Date; toDate: Date } {
+    const now = new Date();
+
+    let toDate = to ? new Date(to) : new Date(now);
+    if (Number.isNaN(toDate.getTime())) {
+      toDate = new Date(now);
+    }
+
+    let fromDate = from ? new Date(from) : new Date(toDate);
+    if (Number.isNaN(fromDate.getTime())) {
+      fromDate = new Date(toDate);
+      fromDate.setDate(fromDate.getDate() - 30);
+    }
+
+    fromDate.setHours(0, 0, 0, 0);
+    toDate.setHours(23, 59, 59, 999);
+
+    if (fromDate > toDate) {
+      const tmp = fromDate;
+      fromDate = toDate;
+      toDate = tmp;
+    }
+
+    return { fromDate, toDate };
+  }
+
   async getDailyStats(projectId: string, from: string, to: string) {
-    const fromDate = new Date(from);
-    const toDate = new Date(to);
+    const { fromDate, toDate } = this.resolveRange(from, to);
 
     return this.prisma.analyticsDaily.findMany({
       where: {
