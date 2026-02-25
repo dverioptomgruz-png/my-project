@@ -413,7 +413,7 @@ export class ABTesterService {
     if (!Array.isArray(updates) || updates.length === 0) {
       throw new BadRequestException('updates array is required');
     }
-    const results = [];
+    const results: any[] = [];
     for (const patch of updates) {
       const result = await this.updateVariantMetrics(userId, experimentId, patch);
       results.push(result.variant);
