@@ -514,19 +514,76 @@ export class AvitoService {
       throw new BadRequestException('Cannot resolve profile for current user');
     }
 
+    const normalizedEmail = user.email.trim().toLowerCase();
+
     const profileByEmail = await this.prisma.profiles.findFirst({
       where: {
         email: {
-          equals: user.email,
+          equals: normalizedEmail,
           mode: 'insensitive',
         },
       },
       select: { id: true },
     });
     if (!profileByEmail) {
-      throw new BadRequestException(
-        'No matching profile found for current user email',
-      );
+      const authUser = await this.prisma.users.findFirst({
+        where: {
+          email: {
+            equals: normalizedEmail,
+            mode: 'insensitive',
+          },
+        },
+        select: {
+          id: true,
+          email: true,
+          raw_user_meta_data: true,
+        },
+      });
+      if (!authUser?.id) {
+        throw new BadRequestException(
+          'No matching profile found for current user email',
+        );
+      }
+
+      const profileByAuthUserId = await this.prisma.profiles.findUnique({
+        where: { id: authUser.id },
+        select: { id: true },
+      });
+      if (profileByAuthUserId) {
+        return profileByAuthUserId.id;
+      }
+
+      const rawMeta =
+        authUser.raw_user_meta_data as Record<string, unknown> | null;
+      const fullName =
+        typeof rawMeta?.full_name === 'string'
+          ? rawMeta.full_name
+          : typeof rawMeta?.name === 'string'
+            ? rawMeta.name
+            : null;
+
+      try {
+        const createdProfile = await this.prisma.profiles.create({
+          data: {
+            id: authUser.id,
+            email: authUser.email || normalizedEmail,
+            full_name: fullName,
+          },
+          select: { id: true },
+        });
+        return createdProfile.id;
+      } catch {
+        const profileAfterRace = await this.prisma.profiles.findUnique({
+          where: { id: authUser.id },
+          select: { id: true },
+        });
+        if (profileAfterRace) {
+          return profileAfterRace.id;
+        }
+        throw new BadRequestException(
+          'Failed to create profile for current user',
+        );
+      }
     }
 
     return profileByEmail.id;

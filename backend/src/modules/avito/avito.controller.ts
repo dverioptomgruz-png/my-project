@@ -49,6 +49,9 @@ export class AvitoController {
     await this.avitoService.getAccounts(userId, projectId);
     const clientId = this.configService.get('AVITO_CLIENT_ID');
     const redirectUri = this.configService.get('AVITO_REDIRECT_URI');
+    const scope =
+      this.configService.get('AVITO_OAUTH_SCOPE') ||
+      this.configService.get('AVITO_SCOPE');
     if (!clientId || !redirectUri) {
       throw new BadRequestException(
         'AVITO_CLIENT_ID and AVITO_REDIRECT_URI must be configured',
@@ -61,7 +64,13 @@ export class AvitoController {
       issuedAt: Date.now(),
     });
 
-    const url = `https://www.avito.ru/oauth?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
+    const scopePart = scope ? `&scope=${encodeURIComponent(scope)}` : '';
+    const url =
+      `https://www.avito.ru/oauth?response_type=code` +
+      `&client_id=${encodeURIComponent(clientId)}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `${scopePart}` +
+      `&state=${encodeURIComponent(state)}`;
     return { url };
   }
 
