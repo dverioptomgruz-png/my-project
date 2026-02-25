@@ -6,17 +6,20 @@ import {
   Body,
   Res,
   BadRequestException,
+  HttpException,
+  Logger,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Response } from 'express';
 import { AvitoService } from './avito.service';
 import { Public } from '../../common/decorators/public.decorator';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ConfigService } from '@nestjs/config';
 
 @ApiTags('Avito')
 @Controller('avito')
 export class AvitoController {
+  private readonly logger = new Logger(AvitoController.name);
+
   constructor(
     private readonly avitoService: AvitoService,
     private readonly configService: ConfigService,
@@ -27,15 +30,34 @@ export class AvitoController {
   @Get('oauth/start')
   @Public()
   @ApiOperation({ summary: 'Start Avito OAuth flow' })
-  async startOAuth(
-    @Query('projectId') projectId: string,
-    @Res() res: Response,
-  ) {
+  async startOAuth(@Query('projectId') projectId: string) {
+    if (!projectId) {
+      throw new BadRequestException('projectId query parameter is required');
+    }
+
     const clientId = this.configService.get('AVITO_CLIENT_ID');
     const redirectUri = this.configService.get('AVITO_REDIRECT_URI');
-    const state = Buffer.from(JSON.stringify({ projectId })).toString('base64');
-    const url = `https://www.avito.ru/oauth?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
-    return res.redirect(url);
+    const scope =
+      this.configService.get('AVITO_OAUTH_SCOPE') ||
+      this.configService.get('AVITO_SCOPE');
+    if (!clientId || !redirectUri) {
+      throw new BadRequestException(
+        'AVITO_CLIENT_ID and AVITO_REDIRECT_URI must be configured',
+      );
+    }
+
+    const state = Buffer.from(
+      JSON.stringify({ projectId, issuedAt: Date.now() }),
+    ).toString('base64');
+    const scopePart = scope ? `&scope=${encodeURIComponent(scope)}` : '';
+    const url =
+      `https://www.avito.ru/oauth?response_type=code` +
+      `&client_id=${encodeURIComponent(clientId)}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `${scopePart}` +
+      `&state=${encodeURIComponent(state)}`;
+
+    return { url };
   }
 
   @Get('oauth/callback')
@@ -49,13 +71,34 @@ export class AvitoController {
     if (!code || !state) {
       throw new BadRequestException('Both "code" and "state" query parameters are required');
     }
+
+    let projectId = '';
+    try {
+      const decoded = JSON.parse(Buffer.from(state, 'base64').toString('utf-8'));
+      if (decoded && typeof decoded.projectId === 'string') {
+        projectId = decoded.projectId;
+      }
+    } catch {
+      // Ignore parse error here and let service validate callback payload.
+    }
+
+    const frontendUrl =
+      this.configService.get('FRONTEND_URL') || 'http://localhost:3000';
+    const successRedirect = projectId
+      ? `${frontendUrl}/app/projects/${projectId}/avito?connected=true`
+      : `${frontendUrl}/app/connect-avito?success=true`;
+    const failureRedirectBase = projectId
+      ? `${frontendUrl}/app/projects/${projectId}/avito?connected=false`
+      : `${frontendUrl}/app/connect-avito?success=false`;
+
     try {
       const result = await this.avitoService.handleCallback(code, state);
-      const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:3000';
-      return res.redirect(`${frontendUrl}/app/connect-avito?success=true&accountId=${result.accountId}`);
+      const redirectUrl = `${successRedirect}&accountId=${encodeURIComponent(result.accountId)}`;
+      return res.redirect(redirectUrl);
     } catch (error) {
-      const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:3000';
-      return res.redirect(`${frontendUrl}/app/connect-avito?success=false&error=${encodeURIComponent(error.message)}`);
+      const message = this.extractErrorMessage(error);
+      this.logger.error(`Avito OAuth callback failed: ${message}`);
+      return res.redirect(`${failureRedirectBase}&error=${encodeURIComponent(message)}`);
     }
   }
 
@@ -156,5 +199,27 @@ export class AvitoController {
     @Body() body: { accountId: string; webhookUrl: string; events?: string[] },
   ) {
     return this.avitoService.registerWebhook(body.accountId, body.webhookUrl, body.events);
+  }
+
+  private extractErrorMessage(error: unknown): string {
+    if (error instanceof HttpException) {
+      const response = error.getResponse();
+      if (typeof response === 'string') {
+        return response;
+      }
+      if (
+        response &&
+        typeof response === 'object' &&
+        'message' in response &&
+        typeof (response as { message?: unknown }).message === 'string'
+      ) {
+        return (response as { message: string }).message;
+      }
+      return error.message;
+    }
+    if (error instanceof Error) {
+      return error.message;
+    }
+    return 'Avito OAuth callback failed';
   }
 }

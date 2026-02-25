@@ -37,11 +37,26 @@ export class AvitoService {
     }
 
     try {
-      const response = await axios.post(AVITO_TOKEN_URL, {
+      const refreshClientId = account.client_id || this.configService.get('AVITO_CLIENT_ID');
+      const refreshClientSecret =
+        account.client_secret || this.configService.get('AVITO_CLIENT_SECRET');
+      if (!refreshClientId || !refreshClientSecret) {
+        throw new BadRequestException(
+          'AVITO_CLIENT_ID and AVITO_CLIENT_SECRET must be configured',
+        );
+      }
+
+      const form = new URLSearchParams({
         grant_type: 'refresh_token',
         refresh_token: account.refresh_token,
-        client_id: account.client_id || this.configService.get('AVITO_CLIENT_ID'),
-        client_secret: account.client_secret || this.configService.get('AVITO_CLIENT_SECRET'),
+        client_id: refreshClientId,
+        client_secret: refreshClientSecret,
+      });
+
+      const response = await axios.post(AVITO_TOKEN_URL, form.toString(), {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
       });
 
       const { access_token, refresh_token, expires_in } = response.data;
@@ -69,19 +84,58 @@ export class AvitoService {
 
     const clientId = this.configService.get('AVITO_CLIENT_ID');
     const clientSecret = this.configService.get('AVITO_CLIENT_SECRET');
+    const redirectUri = this.configService.get('AVITO_REDIRECT_URI');
+    if (!clientId || !clientSecret) {
+      throw new BadRequestException(
+        'AVITO_CLIENT_ID and AVITO_CLIENT_SECRET must be configured',
+      );
+    }
 
-    const tokenResponse = await axios.post(AVITO_TOKEN_URL, {
+    const ownerProfileId = await this.resolveOwnerProfileIdByProject(projectId);
+
+    const form = new URLSearchParams({
       grant_type: 'authorization_code',
       code,
       client_id: clientId,
       client_secret: clientSecret,
     });
+    if (redirectUri) {
+      form.set('redirect_uri', redirectUri);
+    }
+
+    const tokenResponse = await axios.post(AVITO_TOKEN_URL, form.toString(), {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+    });
 
     const { access_token, refresh_token, expires_in } = tokenResponse.data;
 
-    const account = await this.prisma.avitoAccount.create({
+    const existingAccount = await this.prisma.avitoAccount.findFirst({
+      where: {
+        user_id: ownerProfileId,
+        client_id: clientId,
+      },
+      orderBy: { created_at: 'desc' },
+      select: { id: true },
+    });
+
+    const account = existingAccount
+      ? await this.prisma.avitoAccount.update({
+          where: { id: existingAccount.id },
+          data: {
+            account_name: `Avito ${new Date().toISOString().split('T')[0]}`,
+            client_secret: clientSecret,
+            access_token,
+            refresh_token,
+            token_expires_at: new Date(Date.now() + expires_in * 1000),
+            is_active: true,
+            updated_at: new Date(),
+          },
+        })
+      : await this.prisma.avitoAccount.create({
       data: {
-        user_id: projectId,
+        user_id: ownerProfileId,
         account_name: `Avito ${new Date().toISOString().split('T')[0]}`,
         client_id: clientId,
         client_secret: clientSecret,
@@ -98,16 +152,30 @@ export class AvitoService {
   // === Status ===
 
   async getStatus(projectId: string) {
+    const ownerProfileId = await this.resolveOwnerProfileIdByProject(projectId);
     const accounts = await this.prisma.avitoAccount.findMany({
-      where: { user_id: projectId, is_active: true },
-      select: { id: true, account_name: true, is_active: true, token_expires_at: true, created_at: true },
+      where: { user_id: ownerProfileId, is_active: true },
+      select: {
+        id: true,
+        account_name: true,
+        client_id: true,
+        is_active: true,
+        token_expires_at: true,
+        created_at: true,
+        updated_at: true,
+      },
     });
     return {
       connected: accounts.length > 0,
       accounts: accounts.map(a => ({
         id: a.id,
         name: a.account_name,
-        active: a.is_active,
+        clientId: a.client_id || null,
+        isActive: !!a.is_active,
+        active: !!a.is_active,
+        tokenExpiresAt: a.token_expires_at,
+        lastSyncAt: a.updated_at,
+        createdAt: a.created_at,
         tokenValid: a.token_expires_at ? new Date(a.token_expires_at) > new Date() : false,
       })),
     };
@@ -116,9 +184,10 @@ export class AvitoService {
   // === Accounts ===
 
   async connectAccount(projectId: string, clientId?: string, clientSecret?: string) {
+    const ownerProfileId = await this.resolveOwnerProfileIdByProject(projectId);
     const account = await this.prisma.avitoAccount.create({
       data: {
-        user_id: projectId,
+        user_id: ownerProfileId,
         account_name: `Avito Account ${new Date().toISOString().split('T')[0]}`,
         client_id: clientId,
         client_secret: clientSecret,
@@ -129,7 +198,11 @@ export class AvitoService {
   }
 
   async getAccounts(projectId?: string) {
-    const where = projectId ? { user_id: projectId } : {};
+    let where: any = {};
+    if (projectId) {
+      const ownerProfileId = await this.resolveOwnerProfileIdByProject(projectId);
+      where = { user_id: ownerProfileId };
+    }
     return this.prisma.avitoAccount.findMany({
       where,
       select: { id: true, account_name: true, is_active: true, created_at: true, token_expires_at: true },
@@ -287,5 +360,99 @@ export class AvitoService {
       { headers: { Authorization: `Bearer ${token}` } },
     );
     return response.data;
+  }
+
+  private async resolveOwnerProfileIdByProject(projectId: string): Promise<string> {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { ownerId: true },
+    });
+    if (!project?.ownerId) {
+      throw new NotFoundException(`Project ${projectId} not found`);
+    }
+
+    const profileById = await this.prisma.profiles.findUnique({
+      where: { id: project.ownerId },
+      select: { id: true },
+    });
+    if (profileById) {
+      return profileById.id;
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: project.ownerId },
+      select: { email: true },
+    });
+    if (!user?.email) {
+      throw new BadRequestException('Cannot resolve owner profile');
+    }
+
+    const normalizedEmail = user.email.trim().toLowerCase();
+    const profileByEmail = await this.prisma.profiles.findFirst({
+      where: {
+        email: {
+          equals: normalizedEmail,
+          mode: 'insensitive',
+        },
+      },
+      select: { id: true },
+    });
+    if (profileByEmail) {
+      return profileByEmail.id;
+    }
+
+    const authUser = await this.prisma.users.findFirst({
+      where: {
+        email: {
+          equals: normalizedEmail,
+          mode: 'insensitive',
+        },
+      },
+      select: {
+        id: true,
+        email: true,
+        raw_user_meta_data: true,
+      },
+    });
+    if (!authUser?.id) {
+      throw new BadRequestException('Owner profile not found by email');
+    }
+
+    const existingProfileByAuthId = await this.prisma.profiles.findUnique({
+      where: { id: authUser.id },
+      select: { id: true },
+    });
+    if (existingProfileByAuthId) {
+      return existingProfileByAuthId.id;
+    }
+
+    const rawMeta = authUser.raw_user_meta_data as Record<string, unknown> | null;
+    const fullName =
+      typeof rawMeta?.full_name === 'string'
+        ? rawMeta.full_name
+        : typeof rawMeta?.name === 'string'
+          ? rawMeta.name
+          : null;
+
+    try {
+      const createdProfile = await this.prisma.profiles.create({
+        data: {
+          id: authUser.id,
+          email: authUser.email || normalizedEmail,
+          full_name: fullName,
+        },
+        select: { id: true },
+      });
+      return createdProfile.id;
+    } catch {
+      const profileAfterRace = await this.prisma.profiles.findUnique({
+        where: { id: authUser.id },
+        select: { id: true },
+      });
+      if (profileAfterRace) {
+        return profileAfterRace.id;
+      }
+      throw new BadRequestException('Failed to create owner profile');
+    }
   }
 }
