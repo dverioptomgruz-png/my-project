@@ -4,14 +4,17 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+const RAW_API_URL = (process.env.NEXT_PUBLIC_API_URL || '').trim().replace(/\/+$/, '');
+const API_BASE = RAW_API_URL
+  ? (RAW_API_URL.endsWith('/api') ? RAW_API_URL : `${RAW_API_URL}/api`)
+  : 'http://localhost:4000/api';
 
 export async function signUp(formData: FormData) {
   const email = ((formData.get('email') as string) || '').trim().toLowerCase();
   const password = formData.get('password') as string;
   const name = formData.get('full_name') as string;
   try {
-    const res = await fetch(API_URL + '/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, name }) });
+    const res = await fetch(API_BASE + '/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, name }) });
     const data = await res.json();
     if (!res.ok) { redirect('/auth/register?error=' + encodeURIComponent(data.message || 'Registration failed')); }
     const accessToken = data.accessToken || data.access_token;
@@ -34,7 +37,7 @@ export async function signIn(formData: FormData) {
   const email = ((formData.get('email') as string) || '').trim().toLowerCase();
   const password = formData.get('password') as string;
   try {
-    const res = await fetch(API_URL + '/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+    const res = await fetch(API_BASE + '/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
     const data = await res.json();
     if (!res.ok) { redirect('/auth/login?error=' + encodeURIComponent(data.message || 'Invalid credentials')); }
     const accessToken = data.accessToken || data.access_token;

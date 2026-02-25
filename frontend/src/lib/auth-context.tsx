@@ -2,7 +2,8 @@
 
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+const RAW_API_URL = (process.env.NEXT_PUBLIC_API_URL || '').trim().replace(/\/+$/, '');
+const API_BASE = RAW_API_URL.endsWith('/api') ? RAW_API_URL : `${RAW_API_URL}/api`;
 
 interface User {
   id: string;
@@ -36,10 +37,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AuthState>({ user: null, isLoading: true, error: null });
 
   const tryRefreshToken = useCallback(async (): Promise<string | null> => {
-    const refreshToken = localStorage.getItem('refreshToken');
-    if (!refreshToken) return null;
-    try {
-      const res = await fetch(`${API_URL}/api/auth/refresh`, {
+      const refreshToken = localStorage.getItem('refreshToken');
+      if (!refreshToken) return null;
+      try {
+      const res = await fetch(`${API_BASE}/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken }),
@@ -71,7 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       token = newToken;
     }
     try {
-      const res = await fetch(`${API_URL}/api/auth/profile`, {
+      const res = await fetch(`${API_BASE}/auth/profile`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -83,7 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setState({ user: null, isLoading: false, error: null });
           return;
         }
-        const retryRes = await fetch(`${API_URL}/api/auth/profile`, {
+        const retryRes = await fetch(`${API_BASE}/auth/profile`, {
           headers: { Authorization: `Bearer ${newToken}` },
         });
         if (retryRes.ok) {
@@ -108,7 +109,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
     const normalizedEmail = email.trim().toLowerCase();
     try {
-      const res = await fetch(`${API_URL}/api/auth/login`, {
+      const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: normalizedEmail, password }),
@@ -136,7 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
     const normalizedEmail = email.trim().toLowerCase();
     try {
-      const res = await fetch(`${API_URL}/api/auth/register`, {
+      const res = await fetch(`${API_BASE}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: normalizedEmail, password, name }),
