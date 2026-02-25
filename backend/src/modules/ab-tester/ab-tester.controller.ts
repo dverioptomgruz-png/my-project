@@ -32,8 +32,8 @@ export class ABTesterController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create A/B experiment' })
-  async createExperiment(@CurrentUser() user: any, @Body() data: any) {
-    return this.abTesterService.createExperiment(user.id, data);
+  async createExperiment(@CurrentUser('sub') userId: string, @Body() data: any) {
+    return this.abTesterService.createExperiment(userId, data);
   }
 
   @Get('experiments')
@@ -41,43 +41,45 @@ export class ABTesterController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'List experiments' })
   async getExperiments(
-    @CurrentUser() user: any,
+    @CurrentUser('sub') userId: string,
     @Query('projectId') projectId?: string,
     @Query('status') status?: string,
   ) {
-    return this.abTesterService.getExperiments(user.id, projectId, status);
+    return this.abTesterService.getExperiments(userId, projectId, status);
   }
 
   @Get('experiments/:id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get experiment details' })
-  async getExperiment(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.abTesterService.getExperimentWithStats(user.id, id);
+  async getExperiment(@CurrentUser('sub') userId: string, @Param('id') id: string) {
+    return this.abTesterService.getExperimentWithStats(userId, id);
   }
 
   @Put('experiments/:id/start')
+  @Post('experiments/:id/start')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Start experiment' })
-  async startExperiment(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.abTesterService.startExperiment(user.id, id);
+  async startExperiment(@CurrentUser('sub') userId: string, @Param('id') id: string) {
+    return this.abTesterService.startExperiment(userId, id);
   }
 
   @Put('experiments/:id/stop')
+  @Post('experiments/:id/stop')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Stop experiment' })
-  async stopExperiment(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.abTesterService.stopExperiment(user.id, id);
+  async stopExperiment(@CurrentUser('sub') userId: string, @Param('id') id: string) {
+    return this.abTesterService.stopExperiment(userId, id);
   }
 
   @Delete('experiments/:id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Delete experiment' })
-  async deleteExperiment(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.abTesterService.deleteExperiment(user.id, id);
+  async deleteExperiment(@CurrentUser('sub') userId: string, @Param('id') id: string) {
+    return this.abTesterService.deleteExperiment(userId, id);
   }
 
   // ========= AI HYPOTHESIS GENERATION =========
@@ -86,7 +88,7 @@ export class ABTesterController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'AI generates variants for testing' })
-  async generateHypotheses(@CurrentUser() user: any, @Body() data: any) {
+  async generateHypotheses(@CurrentUser('sub') userId: string, @Body() data: any) {
     return this.abTesterService.generateHypotheses(data);
   }
 
@@ -99,7 +101,7 @@ export class ABTesterController {
     summary: 'Import images from Yandex.Disk public folder, AI selects best 10',
   })
   async importFromYandexDisk(
-    @CurrentUser() user: any,
+    @CurrentUser('sub') userId: string,
     @Body() data: {
       yandexDiskUrl: string;  // Public share link
       experimentId: string;
@@ -130,7 +132,7 @@ export class ABTesterController {
 
     // 4. Update experiment with AI-selected image variants
     await this.abTesterService.updateExperimentImages(
-      user.id,
+      userId,
       data.experimentId,
       imageSets,
     );
@@ -156,7 +158,7 @@ export class ABTesterController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'GPT-4 Vision analyzes image quality for Avito' })
   async analyzeImages(
-    @CurrentUser() user: any,
+    @CurrentUser('sub') userId: string,
     @Body() data: { images: string[]; category: string },
   ) {
     return this.imageAIService.analyzeImages(data.images, data.category);
@@ -169,7 +171,7 @@ export class ABTesterController {
     summary: 'AI selects best images and fills all slots (min 10)',
   })
   async selectBestImages(
-    @CurrentUser() user: any,
+    @CurrentUser('sub') userId: string,
     @Body() data: {
       images: string[];
       category: string;
@@ -191,20 +193,69 @@ export class ABTesterController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get experiment statistics' })
   async getExperimentStats(
-    @CurrentUser() user: any,
+    @CurrentUser('sub') userId: string,
     @Param('id') id: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
   ) {
-    return this.abTesterService.getExperimentWithStats(user.id, id, dateFrom, dateTo);
+    return this.abTesterService.getExperimentWithStats(userId, id, dateFrom, dateTo);
   }
 
   @Get('experiments/:id/winner')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Determine winning variant' })
-  async getWinningVariant(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.abTesterService.determineWinner(user.id, id);
+  async getWinningVariant(@CurrentUser('sub') userId: string, @Param('id') id: string) {
+    return this.abTesterService.determineWinner(userId, id);
+  }
+
+  @Post('experiments/:id/metrics')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update metrics for one variant' })
+  async updateVariantMetrics(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+    @Body()
+    data: {
+      variantId?: string;
+      variantIndex?: number;
+      views?: number;
+      contacts?: number;
+      favorites?: number;
+      avitoItemId?: string;
+      mode?: 'set' | 'increment';
+      autoDetermineWinner?: boolean;
+    },
+  ) {
+    return this.abTesterService.updateVariantMetrics(userId, id, data);
+  }
+
+  @Post('experiments/:id/metrics/bulk')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Bulk update metrics for experiment variants' })
+  async bulkUpdateVariantMetrics(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+    @Body()
+    data: {
+      updates: Array<{
+        variantId?: string;
+        variantIndex?: number;
+        views?: number;
+        contacts?: number;
+        favorites?: number;
+        avitoItemId?: string;
+        mode?: 'set' | 'increment';
+      }>;
+    },
+  ) {
+    return this.abTesterService.bulkUpdateVariantMetrics(
+      userId,
+      id,
+      data?.updates || [],
+    );
   }
 
   @Get('experiments/:id/best-images')
@@ -212,10 +263,10 @@ export class ABTesterController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Best performing image combinations' })
   async getBestImageCombinations(
-    @CurrentUser() user: any,
+    @CurrentUser('sub') userId: string,
     @Param('id') id: string,
   ) {
-    return this.abTesterService.getBestImageCombinations(user.id, id);
+    return this.abTesterService.getBestImageCombinations(userId, id);
   }
 
   // ========= AUTOLOAD INTEGRATION =========
@@ -225,19 +276,19 @@ export class ABTesterController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Publish variant to Avito via Autoload' })
   async publishVariant(
-    @CurrentUser() user: any,
+    @CurrentUser('sub') userId: string,
     @Param('id') id: string,
     @Body() data: { variantIndex: number },
   ) {
-    return this.abTesterService.publishVariant(user.id, id, data.variantIndex);
+    return this.abTesterService.publishVariant(userId, id, data.variantIndex);
   }
 
   @Post('experiments/:id/rotate')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Rotate to next variant' })
-  async rotateVariant(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.abTesterService.rotateToNextVariant(user.id, id);
+  async rotateVariant(@CurrentUser('sub') userId: string, @Param('id') id: string) {
+    return this.abTesterService.rotateToNextVariant(userId, id);
   }
 
   // ========= IMAGE LIMITS INFO =========

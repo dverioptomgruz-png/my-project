@@ -17,6 +17,7 @@ import {
   TrendingUp,
   Upload,
   Filter,
+  FlaskConical,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -44,6 +45,14 @@ export function Sidebar({ projectId }: SidebarProps) {
         { href: `/app/projects/${projectId}/settings`, label: 'Настройки', icon: Settings },
       ]
     : [];
+
+  if (projectId) {
+    moduleLinks.push({
+      href: `/app/projects/${projectId}/ab-tester`,
+      label: 'A/B Tester',
+      icon: FlaskConical,
+    });
+  }
 
   const adminLinks = [
     { href: '/app/admin', label: 'Админ-панель', icon: Shield },

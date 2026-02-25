@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvitoService } from '../avito/avito.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -18,9 +18,54 @@ export class ABTesterService {
     private readonly imageAI: ImageAIService,
   ) {}
 
+  private async assertProjectAccess(userId: string, projectId?: string | null) {
+    if (!projectId) return;
+    const membership = await this.prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId } },
+      select: { id: true },
+    });
+    if (!membership) {
+      throw new ForbiddenException('You are not a member of this project');
+    }
+  }
+
+  private async resolveOwnerProfileId(userId: string): Promise<string> {
+    const profileById = await this.prisma.profiles.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (profileById) {
+      return profileById.id;
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+    if (!user?.email) {
+      throw new BadRequestException('Cannot resolve profile for experiment owner');
+    }
+
+    const profileByEmail = await this.prisma.profiles.findFirst({
+      where: {
+        email: {
+          equals: user.email,
+          mode: 'insensitive',
+        },
+      },
+      select: { id: true },
+    });
+    if (!profileByEmail) {
+      throw new BadRequestException('Owner profile not found by email');
+    }
+
+    return profileByEmail.id;
+  }
+
   // ========== EXPERIMENT MANAGEMENT ==========
 
   async createExperiment(userId: string, data: any) {
+    await this.assertProjectAccess(userId, data.projectId);
     const experiment = await this.prisma.aBExperiment.create({
       data: {
         userId,
@@ -63,7 +108,11 @@ export class ABTesterService {
 
   async getExperiments(userId: string, projectId?: string, status?: string) {
     const where: any = { userId };
-    if (projectId) where.projectId = projectId;
+    if (projectId) {
+      await this.assertProjectAccess(userId, projectId);
+      where.projectId = projectId;
+    }
+    if (status) where.status = status;
     return this.prisma.aBExperiment.findMany({
       where,
       include: { variants: true },
@@ -85,7 +134,7 @@ export class ABTesterService {
     if (exp.variants.length < 2) {
       throw new BadRequestException('Need at least 2 variants to start');
     }
-    return this.prisma.aBExperiment.update({
+    const updated = await this.prisma.aBExperiment.update({
       where: { id: experimentId },
       data: {
         status: 'testing',
@@ -94,6 +143,14 @@ export class ABTesterService {
       },
       include: { variants: true },
     });
+
+    try {
+      await this.publishVariant(userId, experimentId, 0);
+    } catch (error: any) {
+      this.logger.warn(`Failed to queue first variant for experiment ${experimentId}: ${error.message}`);
+    }
+
+    return updated;
   }
 
   async stopExperiment(userId: string, experimentId: string) {
@@ -128,7 +185,7 @@ export class ABTesterService {
     let diskImages: string[] = [];
     if (yandexDiskUrl) {
       const files = await this.yandexDisk.getFilesFromPublicFolder(yandexDiskUrl);
-      diskImages = files.filter((f: any) => /\.(jpg|jpeg|png|webp)$/i.test(f.name)).map((f: any) => f.url);
+      diskImages = files.filter((url: any) => typeof url === 'string' && /\.(jpg|jpeg|png|webp)(\?|$)/i.test(url));
     }
 
     // 3. Создаём эксперименты для каждого продукта из CRM
@@ -204,13 +261,59 @@ export class ABTesterService {
     };
   }
 
-  async determineWinner(userId: string, experimentId: string) {
+  async determineWinner(
+    userId: string,
+    experimentId: string,
+    options?: {
+      minTotalViews?: number;
+      minVariantViews?: number;
+      allowLowSample?: boolean;
+    },
+  ) {
     const exp = await this.getExperimentById(userId, experimentId);
+    if (!exp.variants.length) {
+      throw new BadRequestException('Experiment has no variants');
+    }
+
+    const minTotalViews = options?.minTotalViews ?? 50;
+    const minVariantViews = options?.minVariantViews ?? 20;
+    const allowLowSample = options?.allowLowSample ?? false;
+
+    const totalViews = exp.variants.reduce((sum: number, v: any) => sum + (v.views || 0), 0);
+    if (!allowLowSample && totalViews < minTotalViews) {
+      throw new BadRequestException(
+        `Not enough data yet. Collected ${totalViews} views, require at least ${minTotalViews}`,
+      );
+    }
+
+    const eligibleVariants = exp.variants.filter((v: any) => (v.views || 0) >= minVariantViews);
+    const variantsPool = eligibleVariants.length > 0
+      ? eligibleVariants
+      : allowLowSample
+        ? exp.variants
+        : [];
+    if (!variantsPool.length) {
+      throw new BadRequestException(
+        `No variants reached minimum ${minVariantViews} views`,
+      );
+    }
+
     let bestVariant: any = null;
-    let bestCTR = -1;
-    for (const v of exp.variants) {
-      const ctr = v.views > 0 ? v.contacts / v.views : 0;
-      if (ctr > bestCTR) { bestCTR = ctr; bestVariant = v; }
+    let bestScore = -1;
+    let bestCTR = 0;
+    for (const v of variantsPool) {
+      const views = v.views || 0;
+      const contacts = v.contacts || 0;
+      const favorites = v.favorites || 0;
+      const ctr = views > 0 ? contacts / views : 0;
+      const favoritesRate = views > 0 ? favorites / views : 0;
+      const confidence = Math.min(views / 100, 1); // penalize tiny samples
+      const score = (ctr * 0.7 + favoritesRate * 0.3) * (0.4 + confidence * 0.6);
+      if (score > bestScore) {
+        bestScore = score;
+        bestCTR = ctr;
+        bestVariant = v;
+      }
     }
     if (bestVariant) {
       await this.prisma.aBExperiment.update({
@@ -218,7 +321,108 @@ export class ABTesterService {
         data: { winnerVariantId: bestVariant.id, status: 'winner_found' },
       });
     }
-    return { winner: bestVariant, ctr: bestCTR };
+    return {
+      winner: bestVariant,
+      ctr: bestCTR,
+      score: bestScore,
+      totalViews,
+      evaluatedVariants: variantsPool.length,
+      minTotalViews,
+      minVariantViews,
+    };
+  }
+
+  async updateVariantMetrics(
+    userId: string,
+    experimentId: string,
+    data: {
+      variantId?: string;
+      variantIndex?: number;
+      views?: number;
+      contacts?: number;
+      favorites?: number;
+      avitoItemId?: string;
+      mode?: 'set' | 'increment';
+      autoDetermineWinner?: boolean;
+    },
+  ) {
+    const exp = await this.getExperimentById(userId, experimentId);
+
+    const variant = data.variantId
+      ? exp.variants.find((v: any) => v.id === data.variantId)
+      : exp.variants.find((v: any) => v.index === data.variantIndex);
+    if (!variant) {
+      throw new NotFoundException('Variant not found for this experiment');
+    }
+
+    const mode = data.mode || 'set';
+    const numericFields = ['views', 'contacts', 'favorites'] as const;
+    for (const field of numericFields) {
+      const value = data[field];
+      if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
+        throw new BadRequestException(`${field} must be a non-negative number`);
+      }
+    }
+
+    const updateData: any = {};
+    if (mode === 'increment') {
+      if (data.views !== undefined) updateData.views = { increment: data.views };
+      if (data.contacts !== undefined) updateData.contacts = { increment: data.contacts };
+      if (data.favorites !== undefined) updateData.favorites = { increment: data.favorites };
+    } else {
+      if (data.views !== undefined) updateData.views = data.views;
+      if (data.contacts !== undefined) updateData.contacts = data.contacts;
+      if (data.favorites !== undefined) updateData.favorites = data.favorites;
+    }
+    if (data.avitoItemId) {
+      updateData.avitoItemId = data.avitoItemId;
+    }
+
+    const updatedVariant = await this.prisma.aBVariant.update({
+      where: { id: variant.id },
+      data: updateData,
+    });
+
+    let winner: any = null;
+    if (data.autoDetermineWinner) {
+      try {
+        winner = await this.determineWinner(userId, experimentId);
+      } catch (error: any) {
+        this.logger.log(
+          `Winner not determined yet for experiment ${experimentId}: ${error.message}`,
+        );
+      }
+    }
+
+    return { variant: updatedVariant, winner };
+  }
+
+  async bulkUpdateVariantMetrics(
+    userId: string,
+    experimentId: string,
+    updates: Array<{
+      variantId?: string;
+      variantIndex?: number;
+      views?: number;
+      contacts?: number;
+      favorites?: number;
+      avitoItemId?: string;
+      mode?: 'set' | 'increment';
+    }>,
+  ) {
+    if (!Array.isArray(updates) || updates.length === 0) {
+      throw new BadRequestException('updates array is required');
+    }
+    const results = [];
+    for (const patch of updates) {
+      const result = await this.updateVariantMetrics(userId, experimentId, patch);
+      results.push(result.variant);
+    }
+
+    return {
+      updated: results.length,
+      variants: results,
+    };
   }
 
   // ========== VARIANT ROTATION ==========
@@ -227,11 +431,19 @@ export class ABTesterService {
     const exp = await this.getExperimentById(userId, experimentId);
     if (exp.status !== 'testing') throw new BadRequestException('Experiment is not in testing state');
     const nextIndex = ((exp.currentVariantIndex || 0) + 1) % exp.variants.length;
-    return this.prisma.aBExperiment.update({
+    const updated = await this.prisma.aBExperiment.update({
       where: { id: experimentId },
       data: { currentVariantIndex: nextIndex, lastRotatedAt: new Date() },
       include: { variants: true },
     });
+
+    try {
+      await this.publishVariant(userId, experimentId, nextIndex);
+    } catch (error: any) {
+      this.logger.warn(`Failed to queue rotated variant for experiment ${experimentId}: ${error.message}`);
+    }
+
+    return updated;
   }
 
   // ========== AUTO-ROTATION CRON ==========
@@ -252,7 +464,61 @@ export class ABTesterService {
           where: { id: exp.id },
           data: { currentVariantIndex: nextIndex, lastRotatedAt: new Date() },
         });
+        try {
+          await this.publishVariant(exp.userId, exp.id, nextIndex);
+        } catch (error: any) {
+          this.logger.warn(`Failed to queue auto-rotated variant for experiment ${exp.id}: ${error.message}`);
+        }
         this.logger.log(`Rotated experiment ${exp.id} to variant ${nextIndex}`);
+      }
+    }
+  }
+
+  @Cron(CronExpression.EVERY_6_HOURS)
+  async finalizeExpiredExperiments() {
+    const now = Date.now();
+    const activeExperiments = await this.prisma.aBExperiment.findMany({
+      where: {
+        status: 'testing',
+        startedAt: { not: null },
+      },
+      include: { variants: true },
+    });
+
+    for (const exp of activeExperiments) {
+      if (!exp.startedAt || !exp.duration) {
+        continue;
+      }
+
+      const expiresAt = new Date(exp.startedAt).getTime() + exp.duration * 24 * 3600 * 1000;
+      if (expiresAt > now) {
+        continue;
+      }
+
+      try {
+        const winnerResult = await this.determineWinner(exp.userId, exp.id, {
+          allowLowSample: true,
+          minTotalViews: 0,
+          minVariantViews: 0,
+        });
+
+        if (winnerResult?.winner?.index !== undefined) {
+          try {
+            await this.publishVariant(exp.userId, exp.id, winnerResult.winner.index);
+          } catch (publishError: any) {
+            this.logger.warn(
+              `Winner publish failed for experiment ${exp.id}: ${publishError.message}`,
+            );
+          }
+        }
+
+        await this.prisma.aBExperiment.update({
+          where: { id: exp.id },
+          data: { status: 'completed', stoppedAt: new Date() },
+        });
+        this.logger.log(`Finalized expired experiment ${exp.id}`);
+      } catch (error: any) {
+        this.logger.warn(`Finalize skipped for experiment ${exp.id}: ${error.message}`);
       }
     }
   }
@@ -282,8 +548,69 @@ export class ABTesterService {
   }
 
   async updateExperimentImages(userId: string, experimentId: string, data: any) {
-    // TODO: implement
-    return { updated: true };
+    const exp = await this.getExperimentById(userId, experimentId);
+    const rawSets = Array.isArray(data)
+      ? data
+      : data?.imageSets || data?.variants || [];
+
+    if (!Array.isArray(rawSets) || rawSets.length === 0) {
+      throw new BadRequestException('No image sets provided');
+    }
+
+    const sets = rawSets
+      .map((s: any, idx: number) => {
+        const images = Array.isArray(s?.images)
+          ? s.images
+          : Array.isArray(s)
+            ? s
+            : [];
+        return {
+          index: idx,
+          images: images.filter((url: any) => typeof url === 'string' && url.length > 0),
+        };
+      })
+      .filter((s: any) => s.images.length > 0);
+
+    if (sets.length === 0) {
+      throw new BadRequestException('All image sets are empty');
+    }
+
+    const baseImages: string[] = Array.isArray(data?.allImages) && data.allImages.length > 0
+      ? data.allImages
+      : exp.baseImages || [];
+
+    const existingByIndex = new Map(exp.variants.map((v: any) => [v.index, v]));
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.aBExperiment.update({
+        where: { id: experimentId },
+        data: { baseImages: baseImages.length ? baseImages : sets[0].images },
+      });
+
+      for (const set of sets) {
+        const existing = existingByIndex.get(set.index);
+        if (existing) {
+          await tx.aBVariant.update({
+            where: { id: existing.id },
+            data: { images: set.images },
+          });
+        } else {
+          await tx.aBVariant.create({
+            data: {
+              experimentId,
+              name: `Variant ${set.index + 1}`,
+              index: set.index,
+              title: exp.baseTitle,
+              description: exp.baseDescription,
+              price: exp.basePrice,
+              images: set.images,
+            },
+          });
+        }
+      }
+    });
+
+    return this.getExperimentById(userId, experimentId);
   }
 
   async getExperimentWithStats(userId: string, experimentId: string, dateFrom?: string, dateTo?: string) {
@@ -292,13 +619,154 @@ export class ABTesterService {
   }
 
   async getBestImageCombinations(userId: string, experimentId: string) {
-    // TODO: implement
-    return [];
+    const exp = await this.getExperimentById(userId, experimentId);
+    const ranked = [...exp.variants]
+      .map((v: any) => {
+        const views = v.views || 0;
+        const contacts = v.contacts || 0;
+        const favorites = v.favorites || 0;
+        const ctr = views > 0 ? contacts / views : 0;
+        const favoritesRate = views > 0 ? favorites / views : 0;
+        const score = ctr * 0.7 + favoritesRate * 0.3;
+        return {
+          variantId: v.id,
+          variantIndex: v.index,
+          name: v.name,
+          images: v.images || [],
+          views,
+          contacts,
+          favorites,
+          ctr: Number((ctr * 100).toFixed(2)),
+          favoritesRate: Number((favoritesRate * 100).toFixed(2)),
+          score: Number((score * 100).toFixed(2)),
+        };
+      })
+      .sort((a, b) => b.score - a.score);
+
+    return ranked.slice(0, 5);
   }
 
   async publishVariant(userId: string, experimentId: string, variantIndex?: number) {
-    // TODO: implement
-    return { published: true };
+    const exp = await this.getExperimentById(userId, experimentId);
+    if (!exp.projectId) {
+      throw new BadRequestException('Experiment projectId is required for publication');
+    }
+    await this.assertProjectAccess(userId, exp.projectId);
+
+    const resolvedIndex = Number.isInteger(variantIndex)
+      ? Number(variantIndex)
+      : Number(exp.currentVariantIndex || 0);
+
+    const variant = exp.variants.find((v: any) => v.index === resolvedIndex);
+    if (!variant) {
+      throw new NotFoundException(`Variant with index ${resolvedIndex} not found`);
+    }
+
+    let category = await this.prisma.autoloadCategory.findFirst({
+      where: {
+        OR: [
+          { id: exp.category },
+          { slug: exp.category },
+          { nameRu: exp.category },
+        ],
+      },
+      select: { id: true },
+    });
+
+    if (!category) {
+      category = await this.prisma.autoloadCategory.findFirst({
+        where: { isActive: true },
+        select: { id: true },
+        orderBy: { updatedAt: 'desc' },
+      });
+    }
+
+    if (!category) {
+      throw new BadRequestException('No autoload category found. Sync categories first');
+    }
+
+    const project = exp.projectId
+      ? await this.prisma.project.findUnique({
+          where: { id: exp.projectId },
+          select: { ownerId: true },
+        })
+      : null;
+    const ownerProfileId = await this.resolveOwnerProfileId(project?.ownerId || exp.userId);
+
+    const account = await this.prisma.avitoAccount.findFirst({
+      where: { user_id: ownerProfileId, is_active: true },
+      select: { id: true },
+      orderBy: { created_at: 'desc' },
+    });
+
+    const externalId = `ab-${experimentId}-v${resolvedIndex}`;
+    const price = Math.max(0, Math.round(variant.price || 0));
+
+    const item = await this.prisma.autoloadItem.upsert({
+      where: {
+        projectId_externalId: { projectId: exp.projectId, externalId },
+      },
+      update: {
+        accountId: account?.id || undefined,
+        categoryId: category.id,
+        title: variant.title,
+        description: variant.description,
+        price,
+        imageUrls: variant.images || [],
+        status: 'draft',
+        isActive: true,
+      },
+      create: {
+        projectId: exp.projectId,
+        accountId: account?.id || undefined,
+        categoryId: category.id,
+        externalId,
+        title: variant.title,
+        description: variant.description,
+        price,
+        imageUrls: variant.images || [],
+        status: 'draft',
+        isActive: true,
+      },
+    });
+
+    await this.prisma.aBVariant.update({
+      where: { id: variant.id },
+      data: { publishedAt: new Date(), avitoItemId: item.avitoId || variant.avitoItemId },
+    });
+
+    await this.prisma.aBExperiment.update({
+      where: { id: experimentId },
+      data: { currentVariantIndex: resolvedIndex, currentAvitoItemId: item.avitoId || null },
+    });
+
+    await this.prisma.systemEventLog.create({
+      data: {
+        event: 'ab_variant_queued',
+        level: 'info',
+        module: 'ab_tester',
+        message: `Variant ${resolvedIndex} queued for publication`,
+        userId,
+        projectId: exp.projectId,
+        data: {
+          experimentId,
+          variantId: variant.id,
+          variantIndex: resolvedIndex,
+          autoloadItemId: item.id,
+          externalId,
+        },
+      },
+    });
+
+    return {
+      published: true,
+      queued: true,
+      experimentId,
+      variantId: variant.id,
+      variantIndex: resolvedIndex,
+      autoloadItemId: item.id,
+      externalId,
+    };
   }
 
 }
