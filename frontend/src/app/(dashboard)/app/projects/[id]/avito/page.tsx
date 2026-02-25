@@ -123,10 +123,23 @@ export default function AvitoConnectionPage() {
     }
   }, [searchParams, fetchStatus]);
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
     setConnecting(true);
-    const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
-    window.location.href = `${apiBaseUrl}/avito/oauth/start?projectId=${projectId}`;
+    try {
+      const { data } = await api.get<{ url: string }>(
+        `/avito/oauth/start?projectId=${projectId}`,
+      );
+      if (!data?.url) {
+        throw new Error('OAuth URL was not returned by server');
+      }
+      window.location.href = data.url;
+    } catch (err: any) {
+      toast.error({
+        title: 'Не удалось подключить аккаунт',
+        description: err?.message || 'Не удалось получить ссылку OAuth',
+      });
+      setConnecting(false);
+    }
   };
 
   const handleRefresh = async (accountId: string) => {
