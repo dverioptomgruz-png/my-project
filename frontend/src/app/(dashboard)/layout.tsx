@@ -1,8 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
+import { Sidebar } from '@/components/layout/sidebar';
+import { Topbar } from '@/components/layout/topbar';
+import { api } from '@/lib/api';
 
 export default function DashboardLayout({
   children,
@@ -11,6 +14,13 @@ export default function DashboardLayout({
 }) {
   const { user, isLoading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const [projectName, setProjectName] = useState<string | undefined>(undefined);
+
+  const projectId = useMemo(() => {
+    const match = pathname.match(/^\/app\/projects\/([^/]+)/);
+    return match?.[1];
+  }, [pathname]);
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -18,23 +28,47 @@ export default function DashboardLayout({
     }
   }, [user, isLoading, router]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!projectId || !user) {
+      setProjectName(undefined);
+      return;
+    }
+
+    api
+      .get<{ name?: string }>(`/projects/${projectId}`)
+      .then(({ data }) => {
+        if (!cancelled) {
+          setProjectName(data?.name || undefined);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setProjectName(undefined);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, user]);
+
   if (isLoading) {
-    return <div style={{color:'white',padding:'40px'}}>Loading dashboard...</div>;
+    return <div style={{ color: 'white', padding: '40px' }}>Loading dashboard...</div>;
   }
 
   if (!user) {
-    return <div style={{color:'white',padding:'40px'}}>Redirecting to login...</div>;
+    return <div style={{ color: 'white', padding: '40px' }}>Redirecting to login...</div>;
   }
 
   return (
-    <div style={{display:'flex',minHeight:'100vh'}}>
-      <nav style={{width:'200px',background:'#1a1a2e',color:'white',padding:'20px'}}>
-        <h3>Dashboard</h3>
-        <a href="/app/projects" style={{color:'#4ade80',display:'block',marginTop:'10px'}}>Projects</a>
-      </nav>
-      <main style={{flex:1,padding:'20px'}}>
-        {children}
-      </main>
+    <div className="flex h-screen bg-background">
+      <Sidebar projectId={projectId} />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Topbar projectName={projectName} />
+        <main className="flex-1 overflow-auto p-4 lg:p-6">{children}</main>
+      </div>
     </div>
   );
 }

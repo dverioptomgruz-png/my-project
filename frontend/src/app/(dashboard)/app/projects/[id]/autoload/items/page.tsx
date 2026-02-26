@@ -192,7 +192,7 @@ export default function AutoloadItemsPage() {
         projectId,
       };
       if (editing) {
-        await api.patch(`/autoload/items/${editing.id}`, payload);
+        await api.put(`/autoload/items/${editing.id}`, payload);
         toast.success({ title: 'Success', description: 'Item updated' });
       } else {
         await api.post('/autoload/items', payload);

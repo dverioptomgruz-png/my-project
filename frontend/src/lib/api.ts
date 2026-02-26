@@ -58,10 +58,12 @@ class ApiClient {
       if (!response.ok) return false;
 
       const contentType = (response.headers.get("content-type") || "").toLowerCase();
-      const data = contentType.includes("application/json")
-        ? await response.json()
-        : await response.text();
-      this.setTokens(data.accessToken, data.refreshToken);
+      if (!contentType.includes("application/json")) return false;
+      const data = await response.json();
+      const accessToken = data?.accessToken ?? data?.access_token;
+      const refreshToken = data?.refreshToken ?? data?.refresh_token;
+      if (!accessToken || !refreshToken) return false;
+      this.setTokens(accessToken, refreshToken);
       return true;
     } catch {
       return false;
@@ -137,11 +139,19 @@ class ApiClient {
         } satisfies ApiError;
       }
 
+      const contentType = (response.headers.get("content-type") || "").toLowerCase();
+      const isJson = contentType.includes("application/json");
+
       // Handle other error responses
       if (!response.ok) {
         let errorData: Record<string, unknown> = {};
+        let rawText = "";
         try {
-          errorData = await response.json();
+          if (isJson) {
+            errorData = await response.json();
+          } else {
+            rawText = await response.text();
+          }
         } catch {
           // Response body wasn't JSON
         }
@@ -150,6 +160,7 @@ class ApiClient {
           message:
             (errorData.message as string) ||
             (errorData.detail as string) ||
+            rawText ||
             `Request failed with status ${response.status}`,
           status: response.status,
           details: errorData,
@@ -165,7 +176,7 @@ class ApiClient {
         };
       }
 
-      const data = await response.json();
+      const data = isJson ? await response.json() : await response.text();
       return {
         data: data as T,
         status: response.status,
@@ -211,6 +222,14 @@ class ApiClient {
     customHeaders?: Record<string, string>
   ): Promise<ApiResponse<T>> {
     return this.request<T>("PATCH", path, body, customHeaders);
+  }
+
+  async put<T>(
+    path: string,
+    body?: unknown,
+    customHeaders?: Record<string, string>
+  ): Promise<ApiResponse<T>> {
+    return this.request<T>("PUT", path, body, customHeaders);
   }
 
   async delete<T>(
