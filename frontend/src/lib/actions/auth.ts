@@ -27,7 +27,8 @@ export async function signUp(formData: FormData) {
     if (refreshToken) { cookieStore.set('refresh_token', refreshToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' as const, maxAge: 604800, path: '/' }); }
   } catch (e: any) {
     if (e?.digest?.startsWith('NEXT_REDIRECT')) throw e;
-    redirect('/auth/register?error=' + encodeURIComponent(e.message || 'Registration failed'));
+    const message = e instanceof Error ? e.message : 'Registration failed';
+    redirect('/auth/register?error=' + encodeURIComponent(message));
   }
   revalidatePath('/', 'layout');
   redirect('/app');
@@ -50,7 +51,8 @@ export async function signIn(formData: FormData) {
     if (refreshToken) { cookieStore.set('refresh_token', refreshToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' as const, maxAge: 604800, path: '/' }); }
   } catch (e: any) {
     if (e?.digest?.startsWith('NEXT_REDIRECT')) throw e;
-    redirect('/auth/login?error=' + encodeURIComponent(e.message || 'Login failed'));
+    const message = e instanceof Error ? e.message : 'Login failed';
+    redirect('/auth/login?error=' + encodeURIComponent(message));
   }
   revalidatePath('/', 'layout');
   redirect('/app');
