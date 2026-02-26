@@ -1,3 +1,4 @@
+import { ScheduleModule } from '@nestjs/schedule';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -19,6 +20,7 @@ import { SystemModule } from './modules/system/system.module';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     ConfigModule.forRoot({ isGlobal: true }),
     ThrottlerModule.forRoot([
       {
